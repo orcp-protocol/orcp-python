@@ -29,6 +29,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The orcp-drive teleop demo uses curses (stdlib on macOS/Linux; needs the
+# Windows port on Windows).
+teleop = [
+    "windows-curses; sys_platform == 'win32'",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -36,6 +41,9 @@ dev = [
     "black>=23.0",
     "ruff>=0.1",
 ]
+
+[project.scripts]
+orcp-drive = "orcp.teleop:main"
 
 [project.urls]
 Homepage = "https://github.com/orcp-protocol/orcp-python"

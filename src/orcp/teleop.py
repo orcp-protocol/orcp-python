@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-ORCP Keyboard Teleop Demo
-drive.py
+ORCP Keyboard Teleop Demo (``orcp-drive``)
 
 A keyboard tele-operation demo for any ORCP-compliant controller. Works against
 real hardware (USB or WiFi) or the reference simulator — run
-``orcp-sim --link /tmp/orcp`` and connect with ``python drive.py /tmp/orcp``.
+``orcp-sim --link /tmp/orcp`` and connect with ``orcp-drive /tmp/orcp``.
+
+Installed as the ``orcp-drive`` command (``pip install "orcp[teleop]"``); also
+runnable as ``python -m orcp.teleop <port>``.
 
 Drive the robot around using keyboard keys.
 
@@ -32,7 +34,7 @@ import time
 
 from orcp import ORCP, CommandError, ConnectionError, StreamData, TimeoutError
 
-PORT = None  # set from the command line — see the __main__ block below
+PORT = None  # set from the command line — see main()
 
 # ── Speed settings ────────────────────────────────────────────────────────────
 SLOW_SPEEDS  = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
@@ -49,7 +51,7 @@ NORMAL_ARC  = 2.0   # rad/s arc  in NORMAL
 CMD_INTERVAL = 0.05  # 20 Hz command rate
 
 
-def main(stdscr):
+def _run(stdscr):
     global speed_idx
     speed_idx = 2  # start at middle speed
 
@@ -218,16 +220,22 @@ def main(stdscr):
         robot.close()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Console entry point for the ``orcp-drive`` command."""
+    global PORT
     if len(sys.argv) < 2:
         sys.stderr.write(
-            "Usage: python drive.py <port>\n"
-            "  USB:        python drive.py /dev/tty.usbmodemXXXX   (macOS)\n"
-            "              python drive.py /dev/ttyACM0            (Linux)\n"
-            "              python drive.py COM3                    (Windows)\n"
-            "  WiFi/TCP:   python drive.py socket://192.168.4.1:3333\n"
-            "  Simulator:  orcp-sim --link /tmp/orcp   then   python drive.py /tmp/orcp\n"
+            "Usage: orcp-drive <port>\n"
+            "  USB:        orcp-drive /dev/tty.usbmodemXXXX   (macOS)\n"
+            "              orcp-drive /dev/ttyACM0            (Linux)\n"
+            "              orcp-drive COM3                    (Windows)\n"
+            "  WiFi/TCP:   orcp-drive socket://192.168.4.1:3333\n"
+            "  Simulator:  orcp-sim --link /tmp/orcp   then   orcp-drive /tmp/orcp\n"
         )
         sys.exit(1)
     PORT = sys.argv[1]
-    curses.wrapper(main)
+    curses.wrapper(_run)
+
+
+if __name__ == "__main__":
+    main()

@@ -30,6 +30,50 @@ ORCP('/dev/tty.usbmodemXXXX', baudrate=115200)  # Explicit baud rate
 ORCP('socket://192.168.4.1:3333')              # WiFi bridge
 ```
 
+## Teleop demo (`orcp-drive`)
+
+`orcp-drive` is a keyboard tele-operation app — drive any ORCP controller around
+with the WASD/arrow keys. It's both a handy test tool and a worked example of the
+library: it uses `CMD_VEL`, the safety presets, the enable gate, a background
+heartbeat, and live telemetry streaming all together.
+
+Install it (the `teleop` extra just adds curses support on Windows — macOS and
+Linux need nothing extra):
+
+```bash
+pip install "orcp[teleop]"
+```
+
+Run it against hardware, a WiFi bridge, or — with **no hardware at all** — the
+[reference simulator](https://github.com/orcp-protocol/orcp-sim):
+
+```bash
+orcp-drive /dev/tty.usbmodemXXXX        # USB (macOS; /dev/ttyACM0 Linux, COM3 Windows)
+orcp-drive socket://192.168.4.1:3333    # WiFi / TCP
+
+# No robot handy? Drive the simulator instead:
+pip install orcp-sim
+orcp-sim --link /tmp/orcp &             # terminal 1: a virtual ORCP controller
+orcp-drive /tmp/orcp                    # terminal 2: drive it
+```
+
+### Controls
+
+| Key | Action |
+|-----|--------|
+| `W` / `↑` | Forward |
+| `S` / `↓` | Reverse |
+| `A` / `←` | Spin left |
+| `D` / `→` | Spin right |
+| `Q` / `E` | Arc forward-left / forward-right |
+| `Space` | Stop |
+| `+` / `-` | Increase / decrease speed |
+| `M` | Toggle SLOW ↔ NORMAL (NORMAL auto-enables and starts a background heartbeat) |
+| `Esc` | Quit (always returns to a safe, stopped state) |
+
+The source — [`src/orcp/teleop.py`](src/orcp/teleop.py) — is a good read for how the
+pieces fit together. It's ~200 lines and uses only the public API documented below.
+
 ## API reference
 
 ### System

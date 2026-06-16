@@ -77,27 +77,31 @@ If `ping()` returns `True` you're ready to drive.
 
 ## Running the drive demo
 
+The `orcp-drive` keyboard teleop app is installed with the `teleop` extra:
+
 ```bash
-# USB — macOS
-python drive.py /dev/tty.usbmodemXXXX
-
-# USB — Linux
-python drive.py /dev/ttyACM0
-
-# USB — Windows
-python drive.py COM3
-
-# WiFi (any OS)
-python drive.py socket://192.168.4.1:3333
-
-# Or edit the PORT constant at the top of drive.py and just run:
-python drive.py
+pip install -e ".[teleop]"     # adds windows-curses on Windows
 ```
 
-> **Windows note:** `drive.py` uses the `curses` library, which is not included with the standard Windows Python installer. Install the Windows port first:
-> ```
-> pip install windows-curses
-> ```
+Then point it at your controller:
+
+```bash
+orcp-drive /dev/tty.usbmodemXXXX        # USB — macOS
+orcp-drive /dev/ttyACM0                 # USB — Linux
+orcp-drive COM3                         # USB — Windows
+orcp-drive socket://192.168.4.1:3333    # WiFi (any OS)
+```
+
+No hardware? Drive the [reference simulator](https://github.com/orcp-protocol/orcp-sim):
+
+```bash
+pip install orcp-sim
+orcp-sim --link /tmp/orcp &             # a virtual ORCP controller
+orcp-drive /tmp/orcp
+```
+
+> **Windows note:** the demo uses `curses`. The `teleop` extra pulls in
+> `windows-curses` automatically on Windows; on macOS/Linux it's built in.
 
 ### Controls
 
