@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-TeachingBase Keyboard Drive Demo
+ORCP Keyboard Teleop Demo
 drive.py
+
+A keyboard tele-operation demo for any ORCP-compliant controller. Works against
+real hardware (USB or WiFi) or the reference simulator — run
+``orcp-sim --link /tmp/orcp`` and connect with ``python drive.py /tmp/orcp``.
 
 Drive the robot around using keyboard keys.
 
@@ -28,10 +32,7 @@ import time
 
 from orcp import ORCP, CommandError, ConnectionError, StreamData, TimeoutError
 
-PORT = '/dev/tty.usbmodem387A437C52311'
-
-if len(sys.argv) > 1:
-    PORT = sys.argv[1]
+PORT = None  # set from the command line — see the __main__ block below
 
 # ── Speed settings ────────────────────────────────────────────────────────────
 SLOW_SPEEDS  = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
@@ -71,7 +72,7 @@ def main(stdscr):
 
     def on_telemetry(data: StreamData) -> None:
         nonlocal battery_str
-        battery_str = f"{data.battery_v:.2f}V ({data.battery_pct:.0f}%)"
+        battery_str = f"{data.vbat:.2f}V ({data.battery})"
 
     robot.preset('SLOW')
     robot.stream_on(rate=5, callback=on_telemetry)
@@ -218,4 +219,15 @@ def main(stdscr):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.stderr.write(
+            "Usage: python drive.py <port>\n"
+            "  USB:        python drive.py /dev/tty.usbmodemXXXX   (macOS)\n"
+            "              python drive.py /dev/ttyACM0            (Linux)\n"
+            "              python drive.py COM3                    (Windows)\n"
+            "  WiFi/TCP:   python drive.py socket://192.168.4.1:3333\n"
+            "  Simulator:  orcp-sim --link /tmp/orcp   then   python drive.py /tmp/orcp\n"
+        )
+        sys.exit(1)
+    PORT = sys.argv[1]
     curses.wrapper(main)
