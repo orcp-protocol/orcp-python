@@ -21,6 +21,7 @@ Controls:
     Space       Stop
     +/-         Increase/decrease speed
     M           Toggle SLOW / NORMAL mode
+    R           Re-enable motors after a fault is cleared
     Esc         Quit
 
 Uses CMD_VEL (linear + angular velocity).
@@ -73,14 +74,21 @@ def _run(stdscr):
         stdscr.getch()
         return
 
-    # Live battery string updated by stream callback (background thread)
+    # Live status, updated on the library's background thread by the telemetry
+    # stream (battery) and fault pushes (fault_str).
     battery_str = ""
+    fault_str = None          # active fault code, or None when OK
 
     def on_telemetry(data: StreamData) -> None:
         nonlocal battery_str
         battery_str = f"{data.vbat:.2f}V ({data.battery})"
 
+    def _on_fault(ev) -> None:
+        nonlocal fault_str
+        fault_str = ev.code   # instant notification the moment a fault trips
+
     robot.preset('SLOW')
+    robot.on_fault(_on_fault)
     robot.stream_on(rate=5, callback=on_telemetry)
     normal_mode = False
 
@@ -90,6 +98,7 @@ def _run(stdscr):
     last_v: float | None = None
     last_w: float | None = None
     last_send = 0.0
+    last_status_poll = 0.0
     mode_msg = ""
     mode_msg_time = 0.0
 
@@ -119,7 +128,8 @@ def _run(stdscr):
         stdscr.addstr(9, 4, "E          Arc forward-right")
         stdscr.addstr(10, 4, "Space      Stop")
         stdscr.addstr(11, 4, "M          Toggle SLOW / NORMAL")
-        stdscr.addstr(12, 4, "Esc        Quit")
+        stdscr.addstr(12, 4, "R          Re-enable after fault")
+        stdscr.addstr(13, 4, "Esc        Quit")
 
         dir_str = "STOPPED"
         if   v > 0 and w == 0: dir_str = "▲ FORWARD"
@@ -129,17 +139,23 @@ def _run(stdscr):
         elif v > 0 and w > 0:  dir_str = "◄▲ ARC LEFT"
         elif v > 0 and w < 0:  dir_str = "▲► ARC RIGHT"
 
-        stdscr.addstr(14, 0, f"Direction: {dir_str}", curses.A_BOLD)
-        stdscr.addstr(15, 0, f"CMD_VEL:   v={v:.3f} m/s  w={w:.2f} rad/s")
+        stdscr.addstr(15, 0, f"Direction: {dir_str}", curses.A_BOLD)
+        stdscr.addstr(16, 0, f"CMD_VEL:   v={v:.3f} m/s  w={w:.2f} rad/s")
 
         if battery_str:
-            stdscr.addstr(17, 0, f"Battery:   {battery_str}")
+            stdscr.addstr(18, 0, f"Battery:   {battery_str}")
+
+        if fault_str:
+            stdscr.addstr(19, 0, f"FAULT:     {fault_str}   — press [R] to re-enable",
+                          curses.A_BOLD | curses.A_REVERSE)
+        else:
+            stdscr.addstr(19, 0, "Status:    OK", curses.A_DIM)
 
         if normal_mode:
-            stdscr.addstr(18, 0, "Heartbeat: active (100ms)", curses.A_DIM)
+            stdscr.addstr(20, 0, "Heartbeat: active (100ms)", curses.A_DIM)
 
         if mode_msg and time.time() - mode_msg_time < 2.0:
-            stdscr.addstr(20, 0, mode_msg, curses.A_BOLD)
+            stdscr.addstr(22, 0, mode_msg, curses.A_BOLD)
 
         stdscr.addstr(h - 1, 0, "Press Esc to quit")
         stdscr.refresh()
@@ -150,6 +166,14 @@ def _run(stdscr):
         while running:
             key = stdscr.getch()
             now = time.time()
+
+            # Refresh fault state for the display (and notice when it clears).
+            if now - last_status_poll > 0.3:
+                last_status_poll = now
+                try:
+                    fault_str = robot.status().fault
+                except (CommandError, TimeoutError):
+                    pass
 
             v = 0.0
             w = 0.0
@@ -196,6 +220,17 @@ def _run(stdscr):
                     mode_msg = ">>> Switched to NORMAL mode (100% duty) <<<"
                 mode_msg_time = now
                 last_v = None  # Force resend after mode switch
+            elif key == ord('r') or key == ord('R'):
+                try:
+                    robot.enable()   # ENABLE ON — clears recoverable faults + re-enables
+                    fault_str = None
+                    mode_msg = ">>> Re-enabled (fault cleared) <<<"
+                except CommandError as e:
+                    mode_msg = f">>> Re-enable rejected: {e.code} <<<"
+                except TimeoutError:
+                    mode_msg = ">>> Re-enable: no response <<<"
+                mode_msg_time = now
+                last_v = None
 
             # Send command if changed or periodically
             if (v != last_v or w != last_w) or (now - last_send > CMD_INTERVAL):
