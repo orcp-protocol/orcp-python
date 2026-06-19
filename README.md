@@ -69,7 +69,34 @@ orcp-drive /tmp/orcp                    # terminal 2: drive it
 | `Space` | Stop |
 | `+` / `-` | Increase / decrease speed |
 | `M` | Toggle SLOW ↔ NORMAL (NORMAL auto-enables and starts a background heartbeat) |
+| `R` | Re-enable the motors after a fault is cleared (sends `ENABLE ON`) |
 | `Esc` | Quit (always returns to a safe, stopped state) |
+
+### Faults & recovery
+
+The teleop shows the controller's **active fault** under the battery line (e.g.
+`FAULT: ENCODER_STALL — press [R] to re-enable`). Fault behaviour follows the ORCP
+safety model (spec §5): when the controller trips a fault it **stops the motors and
+latches the fault** — it does **not** silently auto-recover when the cause goes
+away. That's deliberate: a machine must not become ready-to-move again on its own.
+
+Faults you may see on real hardware:
+
+| Fault | Cause | Recover by |
+|-------|-------|------------|
+| `ESTOP` | Emergency-stop loop opened | Close the loop, then press `R` |
+| `ENCODER_STALL` | Driven against an obstacle (wheels commanded but can't turn) — this is motor protection, not a bug | Back the robot off, then press `R` |
+| `OVERCURRENT_*` | Per-side current limit exceeded | Reduce the load, then press `R` |
+| `LOWBATT` | Battery below the critical threshold | Recharge, then press `R` |
+| `HEARTBEAT` / `TIMEOUT` | Host link / command flow lost in NORMAL | Press `R` |
+
+**To recover: clear the cause, then press `R`.** That sends `ENABLE ON`, which
+clears recoverable faults and re-enables the motors — matching the ORCP spec
+(§5.3): *"after the emergency stop is released the fault MUST persist until the
+host explicitly sends ENABLE ON; motors MUST NOT restart automatically."* The same
+explicit-re-enable rule applies to every latched fault, not just e-stop. If `R` is
+rejected (e.g. the e-stop is still open), the status line tells you — fix the cause
+and try again.
 
 The source — [`src/orcp/teleop.py`](src/orcp/teleop.py) — is a good read for how the
 pieces fit together. It's ~200 lines and uses only the public API documented below.
