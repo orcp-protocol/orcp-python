@@ -43,10 +43,14 @@ SLOW_LABELS  = ['Crawl', 'Slow', 'Steady', 'Brisk', 'Fast', 'Max']
 NORMAL_SPEEDS = [0.10, 0.20, 0.30, 0.50, 0.75, 1.00]
 NORMAL_LABELS = ['Gentle', 'Easy', 'Cruise', 'Quick', 'Fast', 'Full']
 
-SLOW_TURN   = 2.0   # rad/s spin in SLOW
-SLOW_ARC    = 1.0   # rad/s arc  in SLOW
-NORMAL_TURN = 4.0   # rad/s spin in NORMAL
-NORMAL_ARC  = 2.0   # rad/s arc  in NORMAL
+SLOW_TURN   = 2.0   # rad/s spin-in-place in SLOW
+NORMAL_TURN = 4.0   # rad/s spin-in-place in NORMAL
+
+# Forward arcs (Q/E) follow a fixed turning RADIUS rather than a fixed turn rate,
+# so the arc has the same gentle shape at any speed (instead of pivoting on one
+# wheel at low speed). Larger = gentler. Track width is ~0.175 m, so keeping this
+# well above ~0.1 m guarantees both wheels keep rolling forward.
+ARC_RADIUS  = 0.40  # m
 
 CMD_INTERVAL = 0.05  # 20 Hz command rate
 
@@ -97,9 +101,6 @@ def _run(stdscr):
 
     def turn_rate():
         return NORMAL_TURN if normal_mode else SLOW_TURN
-
-    def arc_rate():
-        return NORMAL_ARC if normal_mode else SLOW_ARC
 
     def draw():
         stdscr.clear()
@@ -166,10 +167,10 @@ def _run(stdscr):
                 w = -turn_rate()
             elif key == ord('q'):
                 v = speeds()[speed_idx]
-                w = arc_rate()
+                w = v / ARC_RADIUS          # arc forward-left at a fixed radius
             elif key == ord('e'):
                 v = speeds()[speed_idx]
-                w = -arc_rate()
+                w = -v / ARC_RADIUS         # arc forward-right
             elif key == ord(' '):
                 robot.stop()
                 last_v = 0.0
