@@ -226,7 +226,7 @@ def main() -> None:
     if len(sys.argv) < 2:
         sys.stderr.write(
             "Usage: orcp-drive <port>\n"
-            "  USB:        orcp-drive /dev/tty.usbmodemXXXX   (macOS)\n"
+            "  USB:        orcp-drive /dev/cu.usbmodemXXXX   (macOS)\n"
             "              orcp-drive /dev/ttyACM0            (Linux)\n"
             "              orcp-drive COM3                    (Windows)\n"
             "  WiFi/TCP:   orcp-drive socket://192.168.4.1:3333\n"

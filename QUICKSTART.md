@@ -30,8 +30,12 @@ python -c "from orcp import ORCP; print('orcp installed OK')"
 **USB (macOS):**
 
 ```bash
-ls /dev/tty.usbmodem*
+ls /dev/cu.usbmodem*
 ```
+
+> Use the **`/dev/cu.*`** device (call-out), **not** `/dev/tty.*` (call-in). They
+> are the same physical port, but `tty.*` honours modem carrier-detect signalling
+> and is noticeably more sluggish; `cu.*` is the right one for talking to a board.
 
 **USB (Linux):**
 
@@ -61,7 +65,7 @@ Before running the drive demo, confirm you can talk to the controller:
 from orcp import ORCP
 
 # Pick whichever connection method applies:
-with ORCP('/dev/tty.usbmodemXXXX') as robot:       # USB — macOS
+with ORCP('/dev/cu.usbmodemXXXX') as robot:       # USB — macOS
 # with ORCP('/dev/ttyACM0') as robot:               # USB — Linux
 # with ORCP('COM3') as robot:                        # USB — Windows
 # with ORCP('socket://192.168.4.1:3333') as robot:  # WiFi (any OS)
@@ -86,7 +90,7 @@ pip install -e ".[teleop]"     # adds windows-curses on Windows
 Then point it at your controller:
 
 ```bash
-orcp-drive /dev/tty.usbmodemXXXX        # USB — macOS
+orcp-drive /dev/cu.usbmodemXXXX        # USB — macOS
 orcp-drive /dev/ttyACM0                 # USB — Linux
 orcp-drive COM3                         # USB — Windows
 orcp-drive socket://192.168.4.1:3333    # WiFi (any OS)
@@ -138,8 +142,8 @@ All tests use `MockTransport` and run without hardware. You should see 55 tests 
 
 ## Troubleshooting
 
-**`Cannot open /dev/tty.usbmodemXXXX` (macOS/Linux)**
-Check the port name with `ls /dev/tty.usbmodem*` (macOS) or `ls /dev/ttyACM*` (Linux) and pass the correct one as an argument.
+**`Cannot open /dev/cu.usbmodemXXXX` (macOS/Linux)**
+Check the port name with `ls /dev/cu.usbmodem*` (macOS) or `ls /dev/ttyACM*` (Linux) and pass the correct one as an argument.
 
 **`Cannot open COM3` (Windows)**
 Confirm the COM port number in Device Manager and pass it as an argument, e.g. `python drive.py COM5`. If the port appears briefly then disappears, try a different USB cable.

@@ -17,7 +17,7 @@ class ORCP:
 
     Usage::
 
-        with ORCP('/dev/tty.usbmodemXXXX') as robot:
+        with ORCP('/dev/cu.usbmodemXXXX') as robot:
             robot.ping()
             robot.cmd_vel(v=0.2, w=0.0)
 

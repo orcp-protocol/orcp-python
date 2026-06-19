@@ -55,9 +55,9 @@ ORCP uses ASCII line-based messages over serial/TCP:
 from orcp import ORCP
 
 # Connection options
-robot = ORCP('/dev/tty.usbmodemXXXX')                    # USB direct
+robot = ORCP('/dev/cu.usbmodemXXXX')                    # USB direct
 robot = ORCP('socket://192.168.4.1:3333')                 # WiFi bridge
-robot = ORCP('/dev/tty.usbmodemXXXX', baudrate=115200)    # Explicit baud
+robot = ORCP('/dev/cu.usbmodemXXXX', baudrate=115200)    # Explicit baud
 
 # Context manager
 with ORCP('socket://192.168.4.1:3333') as robot:
@@ -139,7 +139,7 @@ orcp-python/
 ## Hardware Test Environment
 
 There is a working ORCP controller (STM32F103C8T6 Blue Pill) connected:
-- USB: /dev/tty.usbmodemXXXX (check `ls /dev/tty.usbmodem*`)
+- USB: /dev/cu.usbmodemXXXX (check `ls /dev/cu.usbmodem*`)
 - WiFi: SSID "TeachingBase", IP 192.168.4.1, port 3333
 - Firmware responds to all motion, safety, system, and streaming commands
 - Config commands (GET/SET/SAVE/LOAD/DEFAULTS) not yet implemented in firmware

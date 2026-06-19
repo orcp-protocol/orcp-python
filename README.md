@@ -25,8 +25,8 @@ with ORCP('socket://192.168.4.1:3333') as robot:
 ## Connection options
 
 ```python
-ORCP('/dev/tty.usbmodemXXXX')                  # USB serial (auto baud)
-ORCP('/dev/tty.usbmodemXXXX', baudrate=115200)  # Explicit baud rate
+ORCP('/dev/cu.usbmodemXXXX')                  # USB serial (auto baud)
+ORCP('/dev/cu.usbmodemXXXX', baudrate=115200)  # Explicit baud rate
 ORCP('socket://192.168.4.1:3333')              # WiFi bridge
 ```
 
@@ -48,7 +48,7 @@ Run it against hardware, a WiFi bridge, or — with **no hardware at all** — t
 [reference simulator](https://github.com/orcp-protocol/orcp-sim):
 
 ```bash
-orcp-drive /dev/tty.usbmodemXXXX        # USB (macOS; /dev/ttyACM0 Linux, COM3 Windows)
+orcp-drive /dev/cu.usbmodemXXXX        # USB (macOS; /dev/ttyACM0 Linux, COM3 Windows)
 orcp-drive socket://192.168.4.1:3333    # WiFi / TCP
 
 # No robot handy? Drive the simulator instead:
