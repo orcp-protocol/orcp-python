@@ -63,7 +63,7 @@ def test_end_to_end_against_mc1_sim(mc1_sim):
         r.set("batt.hyst_v", 0.3)
         assert r.get("batt.hyst_v") == pytest.approx(0.3)
 
-        assert len(r.get_all()) == 42
+        assert len(r.get_all()) == 43
 
         # A fault push (NORMAL + motion, then go silent → controller faults).
         faults = []
