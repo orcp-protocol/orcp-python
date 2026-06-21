@@ -23,11 +23,11 @@ class TestSystemCommands:
             robot.close()
 
     def test_info_returns_info_response(self):
-        robot, _ = make_robot("OK INFO fw=1.7.0 bl=1.1.1 hw=MC1 proto=ORCP/1.1 level=2")
+        robot, _ = make_robot("OK INFO fw=1.8.0 bl=1.1.1 hw=MC1 proto=ORCP/1.1 level=2")
         try:
             info = robot.info()
             assert isinstance(info, InfoResponse)
-            assert info.fw == "1.7.0"
+            assert info.fw == "1.8.0"
             assert info.hw == "MC1"
             assert info.level == 2
             assert info.extra["bl"] == "1.1.1"

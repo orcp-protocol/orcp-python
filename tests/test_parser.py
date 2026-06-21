@@ -16,10 +16,10 @@ class TestParseOk:
 
     def test_info(self):
         r = parse_response(
-            "OK INFO fw=1.7.0 bl=1.1.1 hw=MC1 proto=ORCP/1.1 level=2 uuid=DEADBEEF"
+            "OK INFO fw=1.8.0 bl=1.1.1 hw=MC1 proto=ORCP/1.1 level=2 uuid=DEADBEEF"
         )
         assert isinstance(r, InfoResponse)
-        assert r.fw == "1.7.0"
+        assert r.fw == "1.8.0"
         assert r.hw == "MC1"
         assert r.proto == "ORCP/1.1"
         assert r.level == 2
