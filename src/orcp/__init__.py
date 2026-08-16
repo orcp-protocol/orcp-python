@@ -4,6 +4,7 @@ from .exceptions import (
     CommandError,
     ConnectionError,
     ErrorCode,
+    HoldRefused,
     ORCPError,
     TimeoutError,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "CommandError",
     "ConnectionError",
     "TimeoutError",
+    "HoldRefused",
     "ErrorCode",
     "InfoResponse",
     "StatusResponse",

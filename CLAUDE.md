@@ -76,7 +76,7 @@ robot.cmd_vel(v=0.2, w=0.5)      # Unicycle model
 robot.wheel(l=5.0, r=5.0)        # Direct wheel control (rad/s)
 robot.stop()                      # Immediate stop (brake); never raises
 robot.stop('COAST')               # Coast to rest        [vendor extension]
-robot.stop(hold=True)             # Stop, then hold position — RAISES if refused
+robot.stop(hold=True)             # Stop, then hold position — raises HoldRefused
 robot.hold()                      # Shorthand for stop(hold=True)
 
 # Safety
@@ -157,11 +157,18 @@ There is a working ORCP controller (STM32F103C8T6 Blue Pill) connected:
 - Stream data callback should run in a separate thread to avoid blocking
 - Heartbeat thread should be daemon so it doesn't prevent program exit
 - All float values in responses use key=value format, parse with split('=')
-- `STOP` never fails — don't raise exceptions on STOP responses. ⚠️ **The one
-  exception is `stop(hold=True)`**, which DOES raise: a hold can be legitimately
-  refused (not enabled, no encoders), and swallowing that leaves the caller
-  believing the robot is holding position when nothing is. Never "fix" this to
-  be uniform.
+- `STOP` never fails — this is a spec MUST (§STOP: "MUST be accepted regardless
+  of safety state"), so never return ERR from a STOP path. A hold that cannot be
+  honoured is reported as `OK STOP … hold=refused reason=<CODE>`.
+  ⚠️ **`stop(hold=True)` nevertheless raises `HoldRefused`** on that OK response.
+  That is deliberate and is the one place the library adds a failure the wire
+  does not have: a caller believing the robot is holding position when nothing
+  is holding it is the hazard. Never "fix" this to be uniform, and never move it
+  back onto the wire as an ERR.
+- Send the spec's key=value form (`STOP mode=COAST hold=1`), not bare
+  `STOP COAST`. ⚠️ Firmware that reads only bare arguments answers
+  `OK STOP mode=BRAKE` to a coast request and brakes — the mode is echoed from
+  the request, so the response looks correct.
 - Vendor-extension STATUS fields (`coast=`, `hold=`) parse to `None` when the
   device omits them. ⚠️ `None` (unsupported) and `0` (supported, inactive) are
   DIFFERENT ANSWERS — never collapse them with `or 0` / `not x`.

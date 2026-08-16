@@ -35,3 +35,26 @@ class ConnectionError(ORCPError):
 
 class TimeoutError(ORCPError):
     """Raised when a command does not receive a response in time."""
+
+
+class HoldRefused(ORCPError):
+    """Raised when a controller declines a requested position hold.
+
+    ⚠️ **The stop still happened.** This says the *hold* did not engage, not
+    that the robot is still moving.
+
+    ⚠️ **It is not a wire error.** ORCP v1.1 §STOP requires STOP to be accepted
+    regardless of safety state — it never fails — so a controller reports a
+    declined hold as ``OK STOP … hold=refused reason=<CODE>``, not as ``ERR``.
+    The library raises here so that calling code cannot quietly carry on
+    believing the robot is holding position when nothing is holding it. The
+    protocol keeps its guarantee; the library keeps you honest.
+
+    ``reason`` is the controller's code — commonly ``NOT_ENABLED``,
+    ``NO_ENCODERS`` or ``UNSUPPORTED``, but vendors MAY define others, so treat
+    an unrecognised value as a refusal rather than assuming it is not one.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"hold refused: {reason}")

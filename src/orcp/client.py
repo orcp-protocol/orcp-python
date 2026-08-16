@@ -3,10 +3,11 @@ import queue
 import threading
 from typing import Callable, Optional
 
-from .exceptions import CommandError, ConnectionError, ORCPError, TimeoutError
+from .exceptions import (CommandError, ConnectionError, HoldRefused, ORCPError,
+                         TimeoutError)
 from .heartbeat import HeartbeatThread
 from .models import FaultEvent, InfoResponse, StatusResponse, StreamData, WarnEvent
-from .parser import parse_push, parse_response
+from .parser import hold_refusal, parse_push, parse_response
 from .transport import SerialTransport, Transport
 
 
@@ -240,11 +241,17 @@ class ORCP:
         ⚠️ **Exception behaviour differs between the two, deliberately.** A plain
         stop never raises: it is the thing you call in a ``finally:`` or an
         exception handler, and it must not fail there. But ``hold=True`` DOES
-        raise, because a hold can legitimately be refused — the controller is
-        not enabled, or has no encoders — and swallowing that would leave the
-        caller believing the robot is holding position when nothing is holding
-        it. That is the failure mode worth an exception; a hold silently not
+        raise :class:`HoldRefused` when the controller declines the hold —
+        because swallowing that would leave the caller believing the robot is
+        holding position when nothing is holding it, and a hold silently not
         happening on a slope is the whole risk.
+
+        ⚠️ **The refusal is not a wire error.** ORCP v1.1 §STOP requires that
+        STOP be accepted regardless of safety state — it never fails — so a
+        controller reports a declined hold as ``OK STOP … hold=refused
+        reason=<CODE>``. This method turns that into an exception so calling
+        code cannot ignore it, which is the right layer for it: the protocol
+        keeps its guarantee, the library keeps you honest.
 
         ⚠️ ``mode="COAST"`` and ``hold`` are **vendor extensions**, not ORCP
         v1.1, which defines ``STOP`` alone. Check ``STATUS`` for a ``hold=``
@@ -256,16 +263,23 @@ class ORCP:
         encoders, and typically releases on any power-stage fault. Do not rely
         on it to hold a load on a gradient.
         """
+        # key=value is the ORCP v1.1 syntax (§STOP: `STOP [mode=<vendor_mode>]`),
+        # matching WHEEL's `mode=DUTY`. Bare `STOP COAST` is a compatibility
+        # form some firmware also accepts; we always send the documented one.
         cmd = "STOP"
         if mode is not None:
             mode = mode.upper()
             if mode not in ("BRAKE", "COAST"):
                 raise ValueError(f"stop mode must be 'BRAKE' or 'COAST', got {mode!r}")
-            cmd += f" {mode}"
+            cmd += f" mode={mode}"
         if hold:
-            cmd += " HOLD"
+            cmd += " hold=1"
             # Deliberately NOT wrapped: see the docstring.
-            parse_response(self._send_command(cmd))
+            resp = self._send_command(cmd)
+            parse_response(resp)
+            refused = hold_refusal(resp)
+            if refused:
+                raise HoldRefused(refused)
             return
         try:
             parse_response(self._send_command(cmd))
@@ -275,9 +289,11 @@ class ORCP:
     def hold(self, mode: Optional[str] = None) -> None:
         """Stop and actively hold position — shorthand for ``stop(hold=True)``.
 
-        Raises :class:`CommandError` if the controller refuses (not enabled, no
-        encoders, or no such feature). See :meth:`stop` for the caveats, which
-        matter more here than the brevity does.
+        Raises :class:`HoldRefused` if the controller declines the hold (not
+        enabled, no encoders, or no such feature). ⚠️ **The stop still happened**
+        — the exception says the *hold* did not engage, not that the robot is
+        still moving. See :meth:`stop` for the caveats, which matter more here
+        than the brevity does.
         """
         self.stop(mode=mode, hold=True)
 

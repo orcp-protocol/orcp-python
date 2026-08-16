@@ -129,6 +129,19 @@ def _parse_ok(line: str) -> Any:
     return True
 
 
+def hold_refusal(line: str) -> Optional[str]:
+    """Return the refusal reason from an ``OK STOP … hold=refused reason=X`` line.
+
+    ``None`` if the line is not a refused hold. Lives here rather than in the
+    client because it is a protocol detail: a declined hold is reported inside a
+    SUCCESSFUL response, since ORCP v1.1 §STOP forbids STOP from failing.
+    """
+    kv = _parse_kv(line)
+    if kv.get("hold") != "refused":
+        return None
+    return kv.get("reason", "UNKNOWN")
+
+
 def _parse_err(line: str) -> None:
     kv = _parse_kv(line)
     raise CommandError(code=kv.get("code", "UNKNOWN"), message=kv.get("msg", ""))

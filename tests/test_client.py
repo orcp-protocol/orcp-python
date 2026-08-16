@@ -1,7 +1,7 @@
 import time
 
 import pytest
-from orcp import ORCP, CommandError
+from orcp import ORCP, CommandError, HoldRefused
 from orcp.models import InfoResponse, StatusResponse
 from orcp.transport import MockTransport
 
@@ -124,20 +124,24 @@ class TestMotionCommands:
         finally:
             robot.close()
 
-    def test_stop_coast(self):
+    def test_stop_coast_sends_the_spec_kv_form(self):
+        """⚠️ ORCP v1.1 §STOP documents `STOP [mode=<vendor_mode>]`, matching
+        WHEEL's `mode=DUTY`. Firmware that reads only bare arguments answered
+        `OK STOP mode=BRAKE` to a coast request and braked, so the client sends
+        the documented form."""
         robot, transport = make_robot("OK STOP mode=COAST parking=auto")
         try:
             robot.stop("COAST")
-            assert transport.sent[-1].strip() == "STOP COAST"
+            assert transport.sent[-1].strip() == "STOP mode=COAST"
         finally:
             robot.close()
 
     def test_stop_hold_and_coast_hold(self):
         """Deceleration and end state are orthogonal, so all four combine."""
         for kwargs, expected in (
-            (dict(hold=True), "STOP HOLD"),
-            (dict(mode="COAST", hold=True), "STOP COAST HOLD"),
-            (dict(mode="BRAKE", hold=True), "STOP BRAKE HOLD"),
+            (dict(hold=True), "STOP hold=1"),
+            (dict(mode="COAST", hold=True), "STOP mode=COAST hold=1"),
+            (dict(mode="BRAKE", hold=True), "STOP mode=BRAKE hold=1"),
         ):
             robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
             try:
@@ -150,7 +154,7 @@ class TestMotionCommands:
         robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
         try:
             robot.hold()
-            assert transport.sent[-1].strip() == "STOP HOLD"
+            assert transport.sent[-1].strip() == "STOP hold=1"
         finally:
             robot.close()
 
@@ -162,21 +166,33 @@ class TestMotionCommands:
         finally:
             robot.close()
 
-    def test_hold_RAISES_where_plain_stop_swallows(self):
-        """⚠️ The asymmetry is the point.
+    def test_refused_hold_raises_although_the_response_is_OK(self):
+        """⚠️ The refusal arrives inside a SUCCESSFUL response.
 
-        A plain STOP is what you call in a ``finally:`` — it must never raise.
-        But a REFUSED hold that is swallowed leaves the caller believing the
-        robot is holding position when nothing is holding it, which on a
-        gradient is the failure the feature exists to prevent."""
-        robot, transport = make_robot('ERR code=NOT_ENABLED msg="HOLD requires ENABLE ON"')
+        ORCP v1.1 §STOP requires STOP to be accepted regardless of safety state
+        — it never fails — so a controller declining a hold answers `OK STOP …
+        hold=refused reason=X`, not ERR. The library raises anyway, because a
+        caller that quietly carries on believing the robot is holding position
+        on a gradient is the hazard the feature exists to prevent. Protocol
+        keeps its guarantee; library keeps you honest."""
+        robot, transport = make_robot("OK STOP mode=BRAKE hold=refused reason=NOT_ENABLED")
         try:
-            with pytest.raises(CommandError):
+            with pytest.raises(HoldRefused) as exc:
                 robot.stop(hold=True)
+            assert exc.value.reason == "NOT_ENABLED"
         finally:
             robot.close()
 
-        # Same ERR, no hold requested → swallowed, as before.
+    def test_successful_hold_does_not_raise(self):
+        robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
+        try:
+            robot.stop(hold=True)      # must not raise
+        finally:
+            robot.close()
+
+    def test_plain_stop_still_swallows_everything(self):
+        """A plain STOP is what you call in a ``finally:`` — it must never raise,
+        and that has not changed."""
         robot, transport = make_robot('ERR code=NOT_ENABLED msg="whatever"')
         try:
             robot.stop()

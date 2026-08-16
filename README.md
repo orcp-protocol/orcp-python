@@ -138,6 +138,27 @@ fail there. A hold can legitimately be *refused* (the controller is not enabled,
 or has no encoders), and swallowing that would leave you believing the robot is
 holding position when nothing is holding it.
 
+⚠️ **The refusal is not a wire error.** ORCP v1.1 §STOP requires STOP to be
+accepted regardless of safety state — *it never fails* — so a controller
+declining a hold answers `OK STOP … hold=refused reason=<CODE>`, not `ERR`. The
+library raises `HoldRefused` anyway, because that is the right layer for it: the
+protocol keeps its guarantee, the library keeps you honest. **The stop still
+happened** — the exception says the *hold* did not engage, not that the robot is
+still moving.
+
+```python
+from orcp import HoldRefused
+
+try:
+    robot.hold()
+except HoldRefused as e:
+    print("not holding:", e.reason)   # NOT_ENABLED / NO_ENCODERS / UNSUPPORTED
+```
+
+Commands are sent in the spec's key=value form (`STOP mode=COAST hold=1`),
+matching `WHEEL`'s `mode=DUTY`. Some firmware also accepts bare `STOP COAST`,
+but that is a compatibility form and this library does not use it.
+
 ⚠️ **`COAST` and `HOLD` are vendor extensions**, not ORCP v1.1 — which defines
 `STOP` alone. Check for support before depending on them:
 

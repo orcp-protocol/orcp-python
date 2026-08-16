@@ -44,7 +44,7 @@ def mc1_sim(tmp_path):
 
 def test_end_to_end_against_mc1_sim(mc1_sim):
     from orcp import ORCP
-    from orcp.exceptions import CommandError
+    from orcp.exceptions import HoldRefused
 
     with ORCP(mc1_sim, timeout=2.0) as r:
         assert r.ping() is True
@@ -88,11 +88,16 @@ def test_end_to_end_against_mc1_sim(mc1_sim):
         r.stop()                         # a plain STOP is a clean exit
         assert r.status().hold == 0
 
-        # A hold the controller cannot honour must RAISE, not be swallowed —
-        # otherwise the caller believes the robot is holding when nothing is.
+        # ⚠️ A hold the controller cannot honour arrives as a SUCCESSFUL stop
+        # carrying hold=refused — ORCP v1.1 §STOP forbids STOP from failing.
+        # The library raises anyway, so the caller cannot carry on believing
+        # the robot is holding when nothing is.
         r.set("kin.counts_per_rev", 0)
-        with pytest.raises(CommandError):
+        with pytest.raises(HoldRefused) as exc:
             r.hold()
+        assert exc.value.reason == "NO_ENCODERS"
+        # …and the stop itself still succeeded.
+        assert r.status().hold == 0
         r.set("kin.counts_per_rev", 2249)
 
         # A fault push (NORMAL + motion, then go silent → controller faults).

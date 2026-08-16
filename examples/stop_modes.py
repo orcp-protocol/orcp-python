@@ -14,7 +14,7 @@ or electrically-released brake in the drivetrain.
 import sys
 import time
 
-from orcp import ORCP, CommandError
+from orcp import ORCP, HoldRefused
 
 DEVICE = sys.argv[1] if len(sys.argv) > 1 else "socket://192.168.4.1:3333"
 
@@ -61,11 +61,13 @@ def main():
         print("\nHolding position for 5 s — try pushing the robot by hand.")
         try:
             robot.hold()                  # or robot.stop("COAST", hold=True)
-        except CommandError as e:
-            # Refused, not silently ignored: not enabled, or no encoders. This
-            # is why hold() raises where a plain stop() never does — believing
-            # the robot is holding when nothing is holding it is the danger.
-            print(f"  hold refused: {e}")
+        except HoldRefused as e:
+            # ⚠️ The STOP succeeded — the robot is stopped. What was refused is
+            # the HOLD. The controller reported it inside an OK response (ORCP
+            # v1.1 forbids STOP from failing); the library raises so this cannot
+            # be missed, because believing the robot is holding when nothing is
+            # holding it is the danger.
+            print(f"  stopped, but not holding: {e.reason}")
             return
 
         deadline = time.time() + 5
