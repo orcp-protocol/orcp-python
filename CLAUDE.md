@@ -154,6 +154,16 @@ There is a working ORCP controller (STM32F103C8T6 Blue Pill) connected:
 - Push messages (lines starting with `!`) can arrive at any time, including
   between sending a command and receiving the response. The receive loop must
   buffer push messages and return only the OK/ERR response to the caller.
+- ⚠️ **Never use `serial.readline()` directly.** It returns whatever bytes are
+  available when its timeout expires, *including a partial line*. Under
+  streaming the reader thread splits a push mid-line and the tail — which does
+  not start with `!` — gets taken for a command response. `SerialTransport`
+  buffers and only ever emits complete newline-terminated lines; a timeout means
+  "no COMPLETE line yet".
+- ⚠️ **A received line that is neither a push nor `OK`/`ERR` must be dropped**,
+  never enqueued as a response. Otherwise noise, or the fragment you read when
+  connecting to an already-streaming device, becomes the next command's failure.
+  `client.dropped_lines` counts them so "discarded" doesn't mean "invisible".
 - Stream data callback should run in a separate thread to avoid blocking
 - Heartbeat thread should be daemon so it doesn't prevent program exit
 - All float values in responses use key=value format, parse with split('=')

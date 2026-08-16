@@ -46,6 +46,10 @@ class ORCP:
 
         self._response_queue: queue.Queue = queue.Queue()
         self._stop_reader = threading.Event()
+        # Count of received lines that were neither a push nor an OK/ERR
+        # response. Non-zero means the link is delivering something unexpected
+        # — useful when diagnosing a flaky cable or a mid-stream reconnect.
+        self._rx_dropped = 0
         self._reader_thread: Optional[threading.Thread] = None
 
         self._heartbeat = HeartbeatThread(self._send_hb_raw)
@@ -104,8 +108,26 @@ class ORCP:
                     self._handle_push(line)
                 elif line == "OK HB":
                     pass  # Silently discard background heartbeat ACKs
-                else:
+                elif line.startswith("OK") or line.startswith("ERR"):
                     self._response_queue.put(line)
+                else:
+                    # ⚠️ NOT A RESPONSE — DROP IT, never hand it to a waiting
+                    # command. ORCP §2.3: every response begins OK or ERR, so
+                    # anything else is line noise or a fragment, and passing it
+                    # on turns someone else's garbage into *this* command's
+                    # failure.
+                    #
+                    # The common source is connecting to a device that is
+                    # ALREADY streaming: the first read starts mid-line, so the
+                    # remainder arrives looking like a response. It landed on
+                    # whatever command ran first — for the teleop app that is
+                    # the unguarded preset('SLOW'), which died before drawing a
+                    # single frame. Reproduced 5 times in 6 by reconnecting to a
+                    # live simulator.
+                    #
+                    # Dropping resynchronises on the next newline, which is
+                    # exactly the recovery wanted.
+                    self._rx_dropped += 1
             except TimeoutError:
                 continue
             except Exception:
@@ -427,6 +449,17 @@ class ORCP:
     def is_enabled(self) -> Optional[bool]:
         """True if motors are enabled (from last STATUS)."""
         return self._last_status.enabled if self._last_status else None
+
+    @property
+    def dropped_lines(self) -> int:
+        """Received lines that were neither a push nor an ``OK``/``ERR`` response.
+
+        Non-zero means the link delivered something unexpected — a fragment from
+        connecting mid-stream, or line noise on a marginal cable. They are
+        discarded rather than handed to a waiting command; this counter exists so
+        that "discarded" does not mean "invisible".
+        """
+        return self._rx_dropped
 
     @property
     def is_holding(self) -> Optional[bool]:

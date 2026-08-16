@@ -33,7 +33,8 @@ import curses
 import sys
 import time
 
-from orcp import ORCP, CommandError, ConnectionError, StreamData, TimeoutError
+from orcp import (ORCP, CommandError, ConnectionError, HoldRefused, StreamData,
+                  TimeoutError)
 
 PORT = None  # set from the command line — see main()
 
@@ -101,6 +102,11 @@ def _run(stdscr):
     last_status_poll = 0.0
     mode_msg = ""
     mode_msg_time = 0.0
+    # Vendor-extension support, discovered from STATUS on first poll: the fields
+    # are ABSENT on a controller without the feature, which is why the models
+    # parse them to None rather than to 0. None here means "not yet known".
+    hold_state: int | None = None
+    can_coast: bool | None = None
 
     def speeds():
         return NORMAL_SPEEDS if normal_mode else SLOW_SPEEDS
@@ -113,23 +119,42 @@ def _run(stdscr):
 
     def draw():
         stdscr.clear()
-        h, _ = stdscr.getmaxyx()
+        h, wcols = stdscr.getmaxyx()
+
+        def put(row, col, text, attr=curses.A_NORMAL):
+            """Write a line, skipping anything the terminal is too small for.
+
+            ⚠️ Rows are absolute, and this panel grew past 24 when the coast and
+            hold controls were added. curses raises on an out-of-range addstr,
+            which on a classic 24-row terminal would crash the app on the first
+            frame — so clip rather than assume the window is tall enough. The
+            last row is reserved for the quit hint."""
+            if row >= h - 1 or col >= wcols:
+                return
+            try:
+                stdscr.addstr(row, col, text[:wcols - col - 1], attr)
+            except curses.error:      # narrow window / bottom-right cell
+                pass
 
         mode_str = "NORMAL (100%)" if normal_mode else "SLOW (30%)"
-        stdscr.addstr(0, 0, f"═══ ORCP Drive Demo  [{mode_str}] ═══", curses.A_BOLD)
-        stdscr.addstr(1, 0, f"Speed: {labels()[speed_idx]} ({speeds()[speed_idx]:.2f} m/s)    [+/-] change  [M] toggle mode")
+        put(0, 0, f"═══ ORCP Drive Demo  [{mode_str}] ═══", curses.A_BOLD)
+        put(1, 0, f"Speed: {labels()[speed_idx]} ({speeds()[speed_idx]:.2f} m/s)    [+/-] change  [M] toggle mode")
 
-        stdscr.addstr(3, 0, "Controls:")
-        stdscr.addstr(4, 4, "W / ↑      Forward")
-        stdscr.addstr(5, 4, "S / ↓      Reverse")
-        stdscr.addstr(6, 4, "A / ←      Spin left")
-        stdscr.addstr(7, 4, "D / →      Spin right")
-        stdscr.addstr(8, 4, "Q          Arc forward-left")
-        stdscr.addstr(9, 4, "E          Arc forward-right")
-        stdscr.addstr(10, 4, "Space      Stop")
-        stdscr.addstr(11, 4, "M          Toggle SLOW / NORMAL")
-        stdscr.addstr(12, 4, "R          Re-enable after fault")
-        stdscr.addstr(13, 4, "Esc        Quit")
+        put(3, 0, "Controls:")
+        put(4, 4, "W / ↑      Forward")
+        put(5, 4, "S / ↓      Reverse")
+        put(6, 4, "A / ←      Spin left")
+        put(7, 4, "D / →      Spin right")
+        put(8, 4, "Q          Arc forward-left")
+        put(9, 4, "E          Arc forward-right")
+        put(10, 4, "Space      Stop (brake)")
+        put(11, 4, "C          Stop by coasting" +
+                   ("" if can_coast is not False else "   (not supported)"))
+        put(12, 4, "H          Stop and HOLD position" +
+                   ("" if hold_state is not None else "   (not supported)"))
+        put(13, 4, "M          Toggle SLOW / NORMAL")
+        put(14, 4, "R          Re-enable after fault")
+        put(15, 4, "Esc        Quit")
 
         dir_str = "STOPPED"
         if   v > 0 and w == 0: dir_str = "▲ FORWARD"
@@ -139,23 +164,33 @@ def _run(stdscr):
         elif v > 0 and w > 0:  dir_str = "◄▲ ARC LEFT"
         elif v > 0 and w < 0:  dir_str = "▲► ARC RIGHT"
 
-        stdscr.addstr(15, 0, f"Direction: {dir_str}", curses.A_BOLD)
-        stdscr.addstr(16, 0, f"CMD_VEL:   v={v:.3f} m/s  w={w:.2f} rad/s")
+        put(17, 0, f"Direction: {dir_str}", curses.A_BOLD)
+        put(18, 0, f"CMD_VEL:   v={v:.3f} m/s  w={w:.2f} rad/s")
 
         if battery_str:
-            stdscr.addstr(18, 0, f"Battery:   {battery_str}")
+            put(20, 0, f"Battery:   {battery_str}")
 
         if fault_str:
-            stdscr.addstr(19, 0, f"FAULT:     {fault_str}   — press [R] to re-enable",
-                          curses.A_BOLD | curses.A_REVERSE)
+            put(21, 0, f"FAULT:     {fault_str}   — press [R] to re-enable",
+                curses.A_BOLD | curses.A_REVERSE)
         else:
-            stdscr.addstr(19, 0, "Status:    OK", curses.A_DIM)
+            put(21, 0, "Status:    OK", curses.A_DIM)
+
+        # ⚠️ hold=2 means a hold ENDED on a fault or the thermal timeout. The
+        # robot was under active position control — possibly on a gradient — and
+        # is not any more, so it is shown as loudly as a fault rather than as a
+        # quiet status line. This is the state that needs a human to look up.
+        if hold_state == 1:
+            put(22, 0, "HOLD:      holding position", curses.A_BOLD)
+        elif hold_state == 2:
+            put(22, 0, "HOLD:      /!\\ RELEASED — hold ended, robot is NOT held",
+                curses.A_BOLD | curses.A_REVERSE)
 
         if normal_mode:
-            stdscr.addstr(20, 0, "Heartbeat: active (100ms)", curses.A_DIM)
+            put(23, 0, "Heartbeat: active (100ms)", curses.A_DIM)
 
         if mode_msg and time.time() - mode_msg_time < 2.0:
-            stdscr.addstr(22, 0, mode_msg, curses.A_BOLD)
+            put(25, 0, mode_msg, curses.A_BOLD)
 
         stdscr.addstr(h - 1, 0, "Press Esc to quit")
         stdscr.refresh()
@@ -171,7 +206,10 @@ def _run(stdscr):
             if now - last_status_poll > 0.3:
                 last_status_poll = now
                 try:
-                    fault_str = robot.status().fault
+                    st = robot.status()
+                    fault_str = st.fault
+                    hold_state = st.hold        # None if unsupported
+                    can_coast = st.coast is not None
                 except (CommandError, TimeoutError):
                     pass
 
@@ -197,6 +235,32 @@ def _run(stdscr):
                 w = -v / ARC_RADIUS         # arc forward-right
             elif key == ord(' '):
                 robot.stop()
+                last_v = 0.0
+                last_w = 0.0
+            elif key == ord('c') or key == ord('C'):
+                # Coast to rest, then the controller parks itself. Feels very
+                # different from braking, which is the point of having the key.
+                try:
+                    robot.stop('COAST')
+                    mode_msg = ">>> COAST — rolling to rest, then parking <<<"
+                except (CommandError, TimeoutError):
+                    mode_msg = ">>> COAST not supported <<<"
+                mode_msg_time = now
+                last_v = 0.0
+                last_w = 0.0
+            elif key == ord('h') or key == ord('H'):
+                # Stop and actively hold position. ⚠️ A CONVENIENCE, NOT A
+                # SAFETY FUNCTION — it needs power, a live controller and
+                # working encoders, and releases on any power-stage fault.
+                try:
+                    robot.hold()
+                    mode_msg = ">>> HOLD — actively holding position <<<"
+                except HoldRefused as e:
+                    # ⚠️ The stop still happened; only the hold was refused.
+                    mode_msg = f">>> Stopped, NOT holding: {e.reason} <<<"
+                except (CommandError, TimeoutError):
+                    mode_msg = ">>> HOLD: no response <<<"
+                mode_msg_time = now
                 last_v = 0.0
                 last_w = 0.0
             elif key == ord('+') or key == ord('='):

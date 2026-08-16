@@ -200,6 +200,42 @@ class TestMotionCommands:
             robot.close()
 
 
+class TestReaderResynchronisation:
+    """⚠️ Regression: a line that is neither a push nor OK/ERR must be DROPPED,
+    never handed to a waiting command.
+
+    ORCP §2.3 says every response begins OK or ERR, so anything else is noise or
+    a fragment — and passing it on turns someone else's garbage into *this*
+    command's failure. The common source is connecting to a device that is
+    already streaming: the first read starts mid-line, and the remainder looks
+    like a response. It landed on whatever command ran first, which for the
+    teleop app is an unguarded preset('SLOW') — so it died before drawing a
+    frame. Reproduced 5 times in 6 by reconnecting to a live simulator.
+    """
+
+    def test_fragment_does_not_become_a_command_response(self):
+        robot, transport = make_robot(
+            "ttery=94% t=15764 el=0 er=0",   # tail of a split ! STREAM line
+            "OK PING t=1",
+        )
+        try:
+            assert robot.ping() is True     # gets the real response, not the fragment
+            assert robot.dropped_lines == 1
+        finally:
+            robot.close()
+
+    def test_dropped_lines_starts_at_zero_and_is_visible(self):
+        """Discarded must not mean invisible — a non-zero count is the clue that
+        the link is delivering something unexpected."""
+        robot, transport = make_robot("OK PING t=1")
+        try:
+            assert robot.dropped_lines == 0
+            robot.ping()
+            assert robot.dropped_lines == 0
+        finally:
+            robot.close()
+
+
 class TestSafetyCommands:
     def test_preset_slow(self):
         robot, transport = make_robot("OK PRESET")
