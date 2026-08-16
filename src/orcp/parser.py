@@ -16,7 +16,11 @@ _KV_RE = re.compile(r'([\w.]+)=(?:"([^"]*)"|(\S*))')
 # Field names handled explicitly (so anything else lands in `extra`).
 _INFO_KNOWN = {"fw", "hw", "proto", "level", "vendor", "model"}
 _STATUS_KNOWN = {"preset", "mode", "en", "fault", "estop", "tl", "tr",
-                 "vl", "vr", "dl", "dr", "lim", "vbat", "battery"}
+                 "vl", "vr", "dl", "dr", "lim", "vbat", "battery",
+                 # Vendor extensions promoted to typed fields; absent on
+                 # devices that do not implement them, which is why the models
+                 # default to None rather than to 0/False.
+                 "coast", "hold"}
 _STREAM_KNOWN = {"tl", "tr", "vl", "vr", "dl", "dr", "vbat", "battery"}
 
 
@@ -33,6 +37,24 @@ def _f(value: Optional[str], default: float = 0.0) -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return default
+
+
+def _int_field(value: Optional[str]) -> Optional[int]:
+    """Parse an optional integer STATUS field, preserving absent as ``None``.
+
+    ⚠️ Absent must NOT collapse to 0: for ``hold=``, 0 means "has the feature,
+    not holding" and absent means "no such feature"."""
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _bool_field(value: Optional[str]) -> Optional[bool]:
+    """Parse an optional 0/1 STATUS field; absent stays ``None`` (see above)."""
+    if value is None:
+        return None
+    return value == "1"
 
 
 def _maybe_number(value: str) -> Union[float, str]:
@@ -90,6 +112,8 @@ def _parse_ok(line: str) -> Any:
             duty_limit=_f(kv.get("lim")),
             vbat=_f(kv.get("vbat")),
             battery=kv.get("battery", ""),
+            coast=_bool_field(kv.get("coast")),
+            hold=_int_field(kv.get("hold")),
             extra={k: v for k, v in kv.items() if k not in _STATUS_KNOWN},
         )
     if command == "GET":

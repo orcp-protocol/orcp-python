@@ -18,7 +18,7 @@ ORCP uses ASCII line-based messages over serial/TCP:
 
 ### Commands (15 total)
 
-**Motion:** CMD_VEL v=<float> w=<float>, WHEEL l=<float> r=<float>, STOP
+**Motion:** CMD_VEL v=<float> w=<float>, WHEEL l=<float> r=<float>, STOP [BRAKE|COAST] [HOLD]
 **Safety:** PRESET <SLOW|NORMAL>, ENABLE <ON|OFF>, HB
 **System:** PING, INFO, STATUS
 **Telemetry:** STREAM <ON|OFF> [rate_hz]
@@ -74,7 +74,10 @@ status = robot.status()           # Returns StatusResponse dataclass
 # Motion
 robot.cmd_vel(v=0.2, w=0.5)      # Unicycle model
 robot.wheel(l=5.0, r=5.0)        # Direct wheel control (rad/s)
-robot.stop()                      # Immediate stop
+robot.stop()                      # Immediate stop (brake); never raises
+robot.stop('COAST')               # Coast to rest        [vendor extension]
+robot.stop(hold=True)             # Stop, then hold position — RAISES if refused
+robot.hold()                      # Shorthand for stop(hold=True)
 
 # Safety
 robot.preset('SLOW')              # Switch preset
@@ -154,7 +157,14 @@ There is a working ORCP controller (STM32F103C8T6 Blue Pill) connected:
 - Stream data callback should run in a separate thread to avoid blocking
 - Heartbeat thread should be daemon so it doesn't prevent program exit
 - All float values in responses use key=value format, parse with split('=')
-- `STOP` never fails — don't raise exceptions on STOP responses
+- `STOP` never fails — don't raise exceptions on STOP responses. ⚠️ **The one
+  exception is `stop(hold=True)`**, which DOES raise: a hold can be legitimately
+  refused (not enabled, no encoders), and swallowing that leaves the caller
+  believing the robot is holding position when nothing is. Never "fix" this to
+  be uniform.
+- Vendor-extension STATUS fields (`coast=`, `hold=`) parse to `None` when the
+  device omits them. ⚠️ `None` (unsupported) and `0` (supported, inactive) are
+  DIFFERENT ANSWERS — never collapse them with `or 0` / `not x`.
 - Use Python 3.9+ (match minimum supported by current pip/setuptools)
 
 ## Development Commands

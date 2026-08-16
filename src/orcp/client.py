@@ -204,7 +204,11 @@ class ORCP:
     # ------------------------------------------------------------------
 
     def cmd_vel(self, v: float, w: float) -> None:
-        """Send unicycle velocity command (m/s, rad/s)."""
+        """Send unicycle velocity command (m/s, rad/s).
+
+        On a controller that supports position hold, any active hold is released
+        by this command — motion supersedes it.
+        """
         parse_response(self._send_command(f"CMD_VEL v={v:.4f} w={w:.4f}"))
 
     def wheel(self, l: float, r: float, mode: Optional[str] = None) -> None:
@@ -213,18 +217,69 @@ class ORCP:
         Default semantics are rad/s closed-loop velocity (ORCP v1.1). A vendor
         ``mode`` (e.g. ``"DUTY"``) opts into an alternative control mode where
         supported by the controller.
+
+        On a controller that supports position hold, any active hold is released
+        by this command — motion supersedes it.
         """
         cmd = f"WHEEL l={l:.4f} r={r:.4f}"
         if mode is not None:
             cmd += f" mode={mode}"
         parse_response(self._send_command(cmd))
 
-    def stop(self) -> None:
-        """Immediately stop the robot. Never raises an exception."""
+    def stop(self, mode: Optional[str] = None, hold: bool = False) -> None:
+        """Stop the robot.
+
+        ``mode`` selects how it decelerates and ``hold`` what it does afterwards
+        — the two are orthogonal, so all four combinations are valid::
+
+            robot.stop()                        # STOP            — brake
+            robot.stop("COAST")                 # STOP COAST      — coast to rest
+            robot.stop(hold=True)               # STOP HOLD       — brake, then hold position
+            robot.stop("COAST", hold=True)      # STOP COAST HOLD
+
+        ⚠️ **Exception behaviour differs between the two, deliberately.** A plain
+        stop never raises: it is the thing you call in a ``finally:`` or an
+        exception handler, and it must not fail there. But ``hold=True`` DOES
+        raise, because a hold can legitimately be refused — the controller is
+        not enabled, or has no encoders — and swallowing that would leave the
+        caller believing the robot is holding position when nothing is holding
+        it. That is the failure mode worth an exception; a hold silently not
+        happening on a slope is the whole risk.
+
+        ⚠️ ``mode="COAST"`` and ``hold`` are **vendor extensions**, not ORCP
+        v1.1, which defines ``STOP`` alone. Check ``STATUS`` for a ``hold=``
+        field (:attr:`StatusResponse.hold` is ``None`` when unsupported) before
+        depending on either.
+
+        ⚠️ And where it is supported, a position hold is a **convenience, not a
+        safety function**: it needs power, a live controller and working
+        encoders, and typically releases on any power-stage fault. Do not rely
+        on it to hold a load on a gradient.
+        """
+        cmd = "STOP"
+        if mode is not None:
+            mode = mode.upper()
+            if mode not in ("BRAKE", "COAST"):
+                raise ValueError(f"stop mode must be 'BRAKE' or 'COAST', got {mode!r}")
+            cmd += f" {mode}"
+        if hold:
+            cmd += " HOLD"
+            # Deliberately NOT wrapped: see the docstring.
+            parse_response(self._send_command(cmd))
+            return
         try:
-            parse_response(self._send_command("STOP"))
+            parse_response(self._send_command(cmd))
         except (CommandError, TimeoutError, ORCPError):
             pass
+
+    def hold(self, mode: Optional[str] = None) -> None:
+        """Stop and actively hold position — shorthand for ``stop(hold=True)``.
+
+        Raises :class:`CommandError` if the controller refuses (not enabled, no
+        encoders, or no such feature). See :meth:`stop` for the caveats, which
+        matter more here than the brevity does.
+        """
+        self.stop(mode=mode, hold=True)
 
     # ------------------------------------------------------------------
     # Safety commands
@@ -356,6 +411,18 @@ class ORCP:
     def is_enabled(self) -> Optional[bool]:
         """True if motors are enabled (from last STATUS)."""
         return self._last_status.enabled if self._last_status else None
+
+    @property
+    def is_holding(self) -> Optional[bool]:
+        """True while actively holding position, from the last STATUS.
+
+        ``None`` if no STATUS has been read yet **or** the controller does not
+        report ``hold=`` at all. ⚠️ Distinguish those from ``False`` before
+        acting on it — see :class:`~orcp.models.StatusResponse`.
+        """
+        if self._last_status is None or self._last_status.hold is None:
+            return None
+        return self._last_status.hold == 1
 
     @property
     def fault(self) -> Optional[str]:

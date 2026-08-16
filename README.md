@@ -108,7 +108,7 @@ pieces fit together. It's ~200 lines and uses only the public API documented bel
 ```python
 robot.ping()      # → True or raises ConnectionError
 robot.info()      # → InfoResponse(fw, hw, proto, level, vendor, model, extra)
-robot.status()    # → StatusResponse(preset, mode, enabled, fault, estop, vl, vr, vbat, battery, ...)
+robot.status()    # → StatusResponse(preset, mode, enabled, fault, estop, vl, vr, vbat, battery, coast, hold, ...)
 ```
 
 ### Motion
@@ -118,6 +118,52 @@ robot.cmd_vel(v=0.5, w=0.0)   # Unicycle: linear (m/s), angular (rad/s)
 robot.wheel(l=5.0, r=5.0)     # Direct wheel velocities (rad/s)
 robot.stop()                   # Immediate stop, never raises
 ```
+
+#### Stop modes and position hold
+
+How the robot decelerates and what it does afterwards are independent, so they
+are separate arguments:
+
+```python
+robot.stop()                     # brake
+robot.stop("COAST")              # coast to rest (gentler than braking from speed)
+robot.stop(hold=True)            # brake, then actively HOLD POSITION
+robot.stop("COAST", hold=True)   # coast to rest, then hold
+robot.hold()                     # shorthand for stop(hold=True)
+```
+
+⚠️ **`stop()` never raises, but `stop(hold=True)` does — deliberately.** A plain
+stop is what you call in a `finally:` or an exception handler, and it must not
+fail there. A hold can legitimately be *refused* (the controller is not enabled,
+or has no encoders), and swallowing that would leave you believing the robot is
+holding position when nothing is holding it.
+
+⚠️ **`COAST` and `HOLD` are vendor extensions**, not ORCP v1.1 — which defines
+`STOP` alone. Check for support before depending on them:
+
+```python
+st = robot.status()
+if st.hold is None:
+    ...   # controller has no position-hold feature at all
+elif st.is_holding:
+    ...   # hold=1, actively holding
+elif st.hold_broken:
+    ...   # hold=2 — the hold ended on a FAULT or the thermal timeout
+```
+
+⚠️ **`hold is None` and `hold == 0` are different answers** and must not be
+conflated: `None` means "no such feature", `0` means "has one, not holding right
+now". Treating a missing field as "not holding" reads a controller that *cannot*
+hold as one that simply isn't.
+
+`hold_broken` (`hold=2`) is the state worth alerting a human about — the robot
+was under active position control, possibly on a gradient, and is not any more.
+It stays set until the next command.
+
+> ⚠️ **A position hold is a convenience, not a safety function.** It requires
+> power, a live controller and working encoders, and typically releases on any
+> power-stage fault. Do not rely on it to hold a load on a gradient; that needs
+> a mechanical or electrically-released brake in the drivetrain.
 
 ### Safety
 
@@ -152,6 +198,27 @@ robot.load()      # Load from flash
 robot.defaults()  # Factory reset
 ```
 
+Parameter names are **not** validated by this library — it passes whatever you
+give it and surfaces the controller's `ERR code=BAD_KEY`. The key set is a
+property of the firmware, not of ORCP: v1.1 §7 standardises a core group
+(`kin.*`, `pid.*`, `batt.*`, `slow.*`, `normal.*`, `hb.*`) and devices add their
+own freely. **Discover rather than assume:**
+
+```python
+cfg = robot.get_all()
+print(sorted(cfg))               # exactly what this controller exposes
+```
+
+⚠️ **A key can be removed or split between firmware versions.** The MC1's
+`current.scale` became `current.scale_left` / `current.scale_right`, so code
+holding the old name fails against newer firmware. `get_all()` is the reliable
+way to find out; a hard-coded key list is not.
+
+⚠️ **Read values back at full precision.** Some controllers format `GET` to
+three decimals, which cannot round-trip per-board calibration constants around
+0.006 — a saved snapshot then silently degrades the calibration it recorded.
+The MC1 moved to six decimals in FW 1.11.0 for exactly this reason.
+
 ### Push events
 
 ```python
@@ -165,6 +232,7 @@ robot.on_warn(lambda e: print("WARN:", e.type, e.fields))  # ! WARN <type> ...
 robot.battery_voltage   # float | None  (volts)
 robot.battery           # str | None    (band label "OK"/"LOW"/… or "80%")
 robot.is_enabled        # bool | None
+robot.is_holding        # bool | None   (None = unsupported OR no STATUS yet)
 robot.fault             # str | None    (updated by STATUS and ! FAULT pushes)
 ```
 

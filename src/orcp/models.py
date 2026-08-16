@@ -35,7 +35,34 @@ class StatusResponse:
     duty_limit: float = 0.0            # lim=
     vbat: float = 0.0                  # battery voltage (V)
     battery: str = ""                  # band label (OK/LOW/…) or percentage (e.g. "80%")
+
+    # ── Vendor extensions ────────────────────────────────────────────────
+    # Not ORCP v1.1. Both are ``None`` when the device does not report the
+    # field at all.
+    #
+    # ⚠️ ``None`` and ``0`` are DIFFERENT ANSWERS and must not be conflated:
+    # ``hold is None`` means the controller has no position-hold feature, while
+    # ``hold == 0`` means it has one and is not currently holding. Code that
+    # treats a missing field as "not holding" will read a controller that cannot
+    # hold as one that simply is not holding right now.
+    coast: Optional[bool] = None       # coast= — rolling toward a parking brake
+    hold: Optional[int] = None         # hold= — 0 not holding · 1 holding ·
+                                       # 2 ended by fault or timeout
     extra: Dict[str, str] = field(default_factory=dict)
+
+    @property
+    def is_holding(self) -> bool:
+        """True only while actively holding position (``hold=1``)."""
+        return self.hold == 1
+
+    @property
+    def hold_broken(self) -> bool:
+        """True when a hold ended on a fault or the thermal timeout (``hold=2``).
+
+        ⚠️ This is the state worth alerting a human about: the robot was under
+        active position control — possibly on a gradient — and is not any more.
+        It stays true until the next command clears it."""
+        return self.hold == 2
 
 
 @dataclass

@@ -114,6 +114,76 @@ class TestMotionCommands:
             robot.close()
 
 
+    # ── STOP modes and position hold (vendor extensions) ─────────────────
+
+    def test_stop_default_sends_bare_stop(self):
+        robot, transport = make_robot("OK STOP mode=BRAKE")
+        try:
+            robot.stop()
+            assert transport.sent[-1].strip() == "STOP"
+        finally:
+            robot.close()
+
+    def test_stop_coast(self):
+        robot, transport = make_robot("OK STOP mode=COAST parking=auto")
+        try:
+            robot.stop("COAST")
+            assert transport.sent[-1].strip() == "STOP COAST"
+        finally:
+            robot.close()
+
+    def test_stop_hold_and_coast_hold(self):
+        """Deceleration and end state are orthogonal, so all four combine."""
+        for kwargs, expected in (
+            (dict(hold=True), "STOP HOLD"),
+            (dict(mode="COAST", hold=True), "STOP COAST HOLD"),
+            (dict(mode="BRAKE", hold=True), "STOP BRAKE HOLD"),
+        ):
+            robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
+            try:
+                robot.stop(**kwargs)
+                assert transport.sent[-1].strip() == expected
+            finally:
+                robot.close()
+
+    def test_hold_shorthand(self):
+        robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
+        try:
+            robot.hold()
+            assert transport.sent[-1].strip() == "STOP HOLD"
+        finally:
+            robot.close()
+
+    def test_stop_rejects_unknown_mode(self):
+        robot, transport = make_robot()
+        try:
+            with pytest.raises(ValueError):
+                robot.stop("GENTLY")
+        finally:
+            robot.close()
+
+    def test_hold_RAISES_where_plain_stop_swallows(self):
+        """⚠️ The asymmetry is the point.
+
+        A plain STOP is what you call in a ``finally:`` — it must never raise.
+        But a REFUSED hold that is swallowed leaves the caller believing the
+        robot is holding position when nothing is holding it, which on a
+        gradient is the failure the feature exists to prevent."""
+        robot, transport = make_robot('ERR code=NOT_ENABLED msg="HOLD requires ENABLE ON"')
+        try:
+            with pytest.raises(CommandError):
+                robot.stop(hold=True)
+        finally:
+            robot.close()
+
+        # Same ERR, no hold requested → swallowed, as before.
+        robot, transport = make_robot('ERR code=NOT_ENABLED msg="whatever"')
+        try:
+            robot.stop()
+        finally:
+            robot.close()
+
+
 class TestSafetyCommands:
     def test_preset_slow(self):
         robot, transport = make_robot("OK PRESET")
