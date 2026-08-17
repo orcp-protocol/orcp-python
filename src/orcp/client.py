@@ -268,12 +268,15 @@ class ORCP:
         holding position when nothing is holding it, and a hold silently not
         happening on a slope is the whole risk.
 
-        ⚠️ **The refusal is not a wire error.** ORCP v1.1 §STOP requires that
-        STOP be accepted regardless of safety state — it never fails — so a
-        controller reports a declined hold as ``OK STOP … hold=refused
-        reason=<CODE>``. This method turns that into an exception so calling
-        code cannot ignore it, which is the right layer for it: the protocol
-        keeps its guarantee, the library keeps you honest.
+        ⚠️ **A declined hold reaches you two different ways, and both raise
+        :class:`HoldRefused`.** A controller that HAS the feature but cannot
+        honour it right now answers ``OK STOP … hold=refused reason=<CODE>``,
+        because §STOP requires STOP to be accepted regardless of safety state.
+        A controller that does NOT have the feature rejects ``hold=1`` outright
+        with ``ERR code=BAD_ARG``, because §4 requires unknown parameters to be
+        rejected rather than silently ignored. Both mean "you are not holding",
+        so you need one ``except`` clause; ``.reason`` preserves the difference
+        — ``UNSUPPORTED`` will never come true, ``NOT_ENABLED`` might.
 
         ⚠️ ``mode="COAST"`` and ``hold`` are **vendor extensions**, not ORCP
         v1.1, which defines ``STOP`` alone. Check ``STATUS`` for a ``hold=``
@@ -298,7 +301,23 @@ class ORCP:
             cmd += " hold=1"
             # Deliberately NOT wrapped: see the docstring.
             resp = self._send_command(cmd)
-            parse_response(resp)
+            try:
+                parse_response(resp)
+            except CommandError as exc:
+                # ⚠️ A controller WITHOUT the feature rejects `hold=1` outright,
+                # because ORCP v1.1 §4 requires unknown parameters to be
+                # rejected rather than ignored — otherwise a host would be told
+                # "OK" by a controller that cannot hold at all. That arrives as
+                # ERR, while a controller that HAS the feature and merely cannot
+                # honour it right now answers OK with hold=refused.
+                #
+                # Both mean "you are not holding", so both raise HoldRefused and
+                # the caller needs one except clause, not two. The distinction
+                # is preserved in .reason: UNSUPPORTED never becomes true however
+                # long you wait; NOT_ENABLED might.
+                if exc.code == "BAD_ARG":
+                    raise HoldRefused("UNSUPPORTED") from exc
+                raise
             refused = hold_refusal(resp)
             if refused:
                 raise HoldRefused(refused)

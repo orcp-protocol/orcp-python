@@ -183,6 +183,33 @@ class TestMotionCommands:
         finally:
             robot.close()
 
+    def test_unsupported_hold_arrives_as_ERR_and_still_raises_HoldRefused(self):
+        """⚠️ Two wire forms, one exception.
+
+        A controller WITHOUT the feature rejects `hold=1` (ORCP §4: unknown
+        parameters must be rejected, not ignored). One WITH it answers OK
+        carrying hold=refused (§STOP: STOP never fails). Both mean "you are not
+        holding", so the caller needs one except clause — and .reason keeps the
+        difference, because UNSUPPORTED will never come true and NOT_ENABLED
+        might."""
+        robot, transport = make_robot('ERR code=BAD_ARG msg="unknown parameter: hold"')
+        try:
+            with pytest.raises(HoldRefused) as exc:
+                robot.hold()
+            assert exc.value.reason == "UNSUPPORTED"
+        finally:
+            robot.close()
+
+    def test_other_command_errors_still_surface_as_CommandError(self):
+        """Only BAD_ARG is remapped — an ESTOP rejection must not be disguised
+        as a refused hold."""
+        robot, transport = make_robot('ERR code=ESTOP msg="emergency stop active"')
+        try:
+            with pytest.raises(CommandError):
+                robot.hold()
+        finally:
+            robot.close()
+
     def test_successful_hold_does_not_raise(self):
         robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
         try:
