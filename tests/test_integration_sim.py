@@ -54,7 +54,7 @@ def test_end_to_end_against_mc1_sim(mc1_sim):
         assert info.proto == "ORCP/1.1"
         assert info.level == 2
         assert info.extra.get("bl") == "1.4.0"
-        assert info.fw == "1.13.1"
+        assert info.fw == "1.13.2"
 
         st = r.status()
         assert st.preset == "SLOW"
