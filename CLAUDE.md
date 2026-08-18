@@ -175,10 +175,11 @@ There is a working ORCP controller (STM32F103C8T6 Blue Pill) connected:
   does not have: a caller believing the robot is holding position when nothing
   is holding it is the hazard. Never "fix" this to be uniform, and never move it
   back onto the wire as an ERR.
-- Send the spec's key=value form (`STOP mode=COAST hold=1`), not bare
-  `STOP COAST`. ⚠️ Firmware that reads only bare arguments answers
-  `OK STOP mode=BRAKE` to a coast request and brakes — the mode is echoed from
-  the request, so the response looks correct.
+- Send the spec's key=value form (`STOP mode=COAST hold=1`). ⚠️ Bare
+  `STOP COAST` is **not** a supported form: MC1 accepted it for one release and
+  now rejects it. Historical note worth keeping — firmware that read only bare
+  arguments answered `OK STOP mode=BRAKE` to a coast request and braked, and
+  because the mode was echoed from the request the response looked correct.
 - Vendor-extension STATUS fields (`coast=`, `hold=`) parse to `None` when the
   device omits them. ⚠️ `None` (unsupported) and `0` (supported, inactive) are
   DIFFERENT ANSWERS — never collapse them with `or 0` / `not x`.

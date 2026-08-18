@@ -156,8 +156,9 @@ except HoldRefused as e:
 ```
 
 Commands are sent in the spec's key=value form (`STOP mode=COAST hold=1`),
-matching `WHEEL`'s `mode=DUTY`. Some firmware also accepts bare `STOP COAST`,
-but that is a compatibility form and this library does not use it.
+matching `WHEEL`'s `mode=DUTY`. ⚠️ **Bare `STOP COAST` is not a supported form**
+— MC1 accepted it for one release and now rejects it — but this library only
+ever sent key=value, so nothing changed here when it went.
 
 ⚠️ **`COAST` and `HOLD` are vendor extensions**, not ORCP v1.1 — which defines
 `STOP` alone. Check for support before depending on them:

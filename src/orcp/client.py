@@ -256,9 +256,9 @@ class ORCP:
         — the two are orthogonal, so all four combinations are valid::
 
             robot.stop()                        # STOP            — brake
-            robot.stop("COAST")                 # STOP COAST      — coast to rest
-            robot.stop(hold=True)               # STOP HOLD       — brake, then hold position
-            robot.stop("COAST", hold=True)      # STOP COAST HOLD
+            robot.stop("COAST")                 # STOP mode=COAST
+            robot.stop(hold=True)               # STOP hold=1 — brake, then hold
+            robot.stop("COAST", hold=True)      # STOP mode=COAST hold=1
 
         ⚠️ **Exception behaviour differs between the two, deliberately.** A plain
         stop never raises: it is the thing you call in a ``finally:`` or an
@@ -289,8 +289,9 @@ class ORCP:
         on it to hold a load on a gradient.
         """
         # key=value is the ORCP v1.1 syntax (§STOP: `STOP [mode=<vendor_mode>]`),
-        # matching WHEEL's `mode=DUTY`. Bare `STOP COAST` is a compatibility
-        # form some firmware also accepts; we always send the documented one.
+        # matching WHEEL's `mode=DUTY`. Bare `STOP COAST` was accepted by MC1
+        # for one release and is now rejected; this library only ever sent the
+        # key=value form, so nothing here changed when it went.
         cmd = "STOP"
         if mode is not None:
             mode = mode.upper()
