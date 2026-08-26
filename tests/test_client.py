@@ -143,18 +143,20 @@ class TestMotionCommands:
             (dict(mode="COAST", hold=True), "STOP mode=COAST hold=1"),
             (dict(mode="BRAKE", hold=True), "STOP mode=BRAKE hold=1"),
         ):
-            robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
+            robot, transport = make_robot("OK STOP mode=BRAKE hold=on",
+                                          "OK STATUS preset=SLOW mode=VELOCITY en=1 fault=OK estop=0 hold=1",)
             try:
                 robot.stop(**kwargs)
-                assert transport.sent[-1].strip() == expected
+                assert transport.sent[0].strip() == expected
             finally:
                 robot.close()
 
     def test_hold_shorthand(self):
-        robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
+        robot, transport = make_robot("OK STOP mode=BRAKE hold=on",
+                                      "OK STATUS preset=SLOW mode=VELOCITY en=1 fault=OK estop=0 hold=1",)
         try:
             robot.hold()
-            assert transport.sent[-1].strip() == "STOP hold=1"
+            assert transport.sent[0].strip() == "STOP hold=1"
         finally:
             robot.close()
 
@@ -211,9 +213,30 @@ class TestMotionCommands:
             robot.close()
 
     def test_successful_hold_does_not_raise(self):
-        robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
+        robot, transport = make_robot(
+            "OK STOP mode=BRAKE hold=on",
+            "OK STATUS preset=SLOW mode=VELOCITY en=1 fault=OK estop=0 hold=1",
+        )
         try:
             robot.stop(hold=True)      # must not raise
+        finally:
+            robot.close()
+
+    def test_old_firmware_that_ignores_hold_is_caught(self):
+        """⚠️ Firmware predating the feature reads only bare STOP arguments and
+        IGNORES `hold=1` — so it brakes and answers an ordinary
+        `OK STOP mode=BRAKE`. No ERR, no hold=refused, nothing to detect from
+        the response alone. The caller would be told it is holding position
+        while the robot is merely braked, which on a gradient is precisely the
+        hazard this feature exists to prevent. hold() confirms via STATUS."""
+        robot, transport = make_robot(
+            "OK STOP mode=BRAKE",                                    # hold= ignored
+            "OK STATUS preset=SLOW mode=IDLE en=1 fault=OK estop=0",  # no hold field
+        )
+        try:
+            with pytest.raises(HoldRefused) as exc:
+                robot.hold()
+            assert exc.value.reason == "UNSUPPORTED"
         finally:
             robot.close()
 

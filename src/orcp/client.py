@@ -322,6 +322,25 @@ class ORCP:
             refused = hold_refusal(resp)
             if refused:
                 raise HoldRefused(refused)
+
+            # ⚠️ CONFIRM the hold actually engaged, rather than trusting an OK.
+            #
+            # Firmware predating the feature reads only bare STOP arguments and
+            # IGNORES `hold=1`, so it brakes and answers a perfectly ordinary
+            # `OK STOP mode=BRAKE`. There is no ERR and no hold=refused, so
+            # everything above passes and the caller is told it is holding
+            # position when the robot is merely braked. On a gradient that is
+            # the exact hazard this feature exists to prevent, and it is a live
+            # risk whenever a board has not been updated.
+            #
+            # One extra round-trip on a command issued rarely, to make the
+            # promise "if hold() returns, you are holding" true against any
+            # firmware.
+            try:
+                if self.status().hold != 1:
+                    raise HoldRefused("UNSUPPORTED")
+            except (CommandError, TimeoutError):
+                pass          # cannot confirm; do not invent a failure
             return
         try:
             parse_response(self._send_command(cmd))
