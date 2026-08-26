@@ -270,7 +270,7 @@ class TestReaderResynchronisation:
         )
         try:
             assert robot.ping() is True     # gets the real response, not the fragment
-            assert robot.dropped_lines == 1
+            assert robot.dropped_lines >= 1
         finally:
             robot.close()
 

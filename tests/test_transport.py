@@ -22,10 +22,15 @@ class TestMockTransport:
         t.send("CMD_VEL v=0.5 w=0.0")
         assert t.sent == ["PING", "CMD_VEL v=0.5 w=0.0"]
 
+    # ⚠️ MockTransport withholds OK/ERR replies until a command has been sent,
+    # because a real device does not answer before it is asked — and the client
+    # now discards anything queued beforehand as stale. These tests send first.
+
     def test_readline_returns_queued_response(self):
         t = MockTransport()
         t.connect()
         t.queue_response("OK PING")
+        t.send("PING")
         assert t.readline() == "OK PING"
 
     def test_readline_blocks_then_times_out(self):
@@ -52,6 +57,7 @@ class TestMockTransport:
         t.connect()
         t.queue_response("OK PING")
         t.queue_response("OK INFO firmware=1.0 hardware=BP device_id=ABC")
+        t.send("PING"); t.send("INFO")
         assert t.readline() == "OK PING"
         assert t.readline().startswith("OK INFO")
 

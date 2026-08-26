@@ -188,6 +188,33 @@ class ORCP:
     def _send_command(self, command: str) -> str:
         """Send a command and return the raw response line."""
         with self._cmd_lock:
+            # ⚠️ DISCARD anything already queued. A response sitting here before
+            # we have sent anything cannot be the answer to what we are about to
+            # ask, and handing it over desynchronises every command that
+            # follows — each one receiving the previous one's reply.
+            #
+            # Two real sources, both seen on hardware:
+            #   * a WiFi bridge keeps its link to the robot open across host
+            #     connections, so a new client is handed the tail of the last
+            #     session. Observed as `PRESET SLOW` answering
+            #     `ERR BAD_ARG: missing w=<rad/s>` — CMD_VEL's error, from a
+            #     session that had already ended.
+            #   * a command times out and its reply arrives afterwards. Without
+            #     this, ONE slow round-trip desynchronises the link permanently.
+            #
+            # Flushing the transport at connect() cannot fix either: it only
+            # clears bytes already arrived, not bytes still in flight, and does
+            # nothing at all for the late-reply case.
+            dropped = 0
+            while True:
+                try:
+                    self._response_queue.get_nowait()
+                    dropped += 1
+                except queue.Empty:
+                    break
+            if dropped:
+                self._rx_dropped += dropped
+
             with self._write_lock:
                 self._transport.send(command)
             try:

@@ -144,6 +144,7 @@ class MockTransport(Transport):
         self._connected = False
         self._responses: list = []
         self._sent: list = []
+        self._outstanding = 0
         self._lock = threading.Lock()
 
     def connect(self) -> None:
@@ -157,15 +158,37 @@ class MockTransport(Transport):
             raise ConnectionError("Not connected")
         with self._lock:
             self._sent.append(line)
+            self._outstanding += 1
 
     def readline(self, timeout: float = 2.0) -> str:
+        """Return the next queued line.
+
+        ⚠️ **Queued OK/ERR responses are withheld until a command has been
+        sent.** A real device does not answer before it is asked, and the client
+        now discards anything queued before a command goes out — because a
+        response that arrives unsolicited cannot be the answer to the next
+        question, and passing it on desynchronises the link. A mock that replies
+        early would make every test race that behaviour.
+
+        Push messages and line noise are delivered immediately: those genuinely
+        do arrive unsolicited.
+        """
         if not self._connected:
             raise ConnectionError("Not connected")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
                 if self._responses:
-                    return self._responses.pop(0)
+                    nxt = self._responses[0]
+                    # Only a genuine OK/ERR reply consumes an outstanding
+                    # command. Pushes and line noise arrive whenever they like,
+                    # which is the whole point of the tests that queue them.
+                    is_reply = nxt.startswith("OK") or nxt.startswith("ERR")
+                    if not is_reply:
+                        return self._responses.pop(0)
+                    if self._outstanding > 0:
+                        self._outstanding -= 1
+                        return self._responses.pop(0)
             time.sleep(0.01)
         raise TimeoutError("No response queued")
 
