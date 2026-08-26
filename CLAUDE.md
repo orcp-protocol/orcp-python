@@ -185,6 +185,25 @@ There is a working ORCP controller (STM32F103C8T6 Blue Pill) connected:
   DIFFERENT ANSWERS — never collapse them with `or 0` / `not x`.
 - Use Python 3.9+ (match minimum supported by current pip/setuptools)
 
+## Testing the teleop app
+
+⚠️ **Driving `orcp-drive` from a pty harness has a specific blind spot: Esc.**
+A synthetic `\x1b` written into a pty does not quit the app, because ncurses
+treats a lone ESC as the possible start of an escape sequence and waits
+`ESCDELAY` for bytes a script never sends. A real keypress in a real terminal
+works fine — **confirmed on hardware 2026-08-26, so this is a harness artifact,
+not a bug.**
+
+📋 Two consequences worth remembering:
+
+* **Do not use "did it exit on Esc?" as a pass/fail signal** in an automated
+  run. It will report a hang that does not exist.
+* ⚠️ **Closing the pty sends SIGHUP and kills the child**, so a harness that
+  closes the fd and then waits will always see the process end — whatever the
+  app did. A past "0 crashes in 8 trials" result was measuring the hangup, not
+  the app. If you need a real exit signal, drive a *keyboard* binding the app
+  handles (`m`, `+`) and check for its visible effect instead.
+
 ## Development Commands
 
 ```bash
