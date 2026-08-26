@@ -62,7 +62,16 @@ USE_GAMEPAD = False   # set from the command line — see main()
 # dies, the terminal closes, or a wireless gamepad drops, the board keeps its
 # last command with nobody sending. Teleop sends far faster than this, so it can
 # never trip in normal use. Restored on exit.
-TELEOP_TIMEOUT_MS = 1000
+TELEOP_TIMEOUT_MS = 2000
+
+# ⚠️ 2000 ms, not 1000. Teleop sends at 20 Hz so either is enormous slack on
+# USB — but over a WiFi bridge a single stalled round-trip can exceed a second,
+# and then the watchdog stops a robot that is being driven perfectly well.
+# Observed on hardware 2026-08-26: driving fine, then a TIMEOUT fault mid-run.
+#
+# 2 s is the value mc1_optimise.py already uses for its own bridge protection
+# (LINK_TIMEOUT_S), proven over many tuning sessions. Matching it rather than
+# inventing a tighter number.
 
 PORT = None  # set from the command line — see main()
 

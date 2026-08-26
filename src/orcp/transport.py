@@ -56,7 +56,17 @@ class SerialTransport(Transport):
                 # USB serial open triggers a DTR reset on the microcontroller.
                 # Wait for it to boot before sending any commands.
                 time.sleep(2.0)
-                self._serial.reset_input_buffer()
+            # ⚠️ ALWAYS flush, socket included. A WiFi bridge keeps its link to
+            # the robot open across host connections, so a freshly-connected
+            # client can be handed bytes left over from the PREVIOUS session —
+            # and if those form a complete `ERR …` line they look like a valid
+            # response and go to the first command that asks.
+            #
+            # Observed on hardware: `PRESET SLOW` answering
+            # `ERR BAD_ARG: missing w=<rad/s>` — CMD_VEL's error, from a session
+            # that had already ended. The flush used to sit inside the USB
+            # branch, so socket:// never got one.
+            self._serial.reset_input_buffer()
             self._rx.clear()
         except serial.SerialException as exc:
             raise ConnectionError(str(exc)) from exc
