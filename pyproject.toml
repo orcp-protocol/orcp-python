@@ -34,6 +34,12 @@ dependencies = [
 teleop = [
     "windows-curses; sys_platform == 'win32'",
 ]
+# Gamepad input for orcp-drive. Deliberately OPTIONAL: the client itself
+# depends on pyserial alone, and a controller is a demo convenience rather
+# than part of the protocol library.
+gamepad = [
+    "pygame>=2.5",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",

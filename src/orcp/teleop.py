@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ORCP Keyboard Teleop Demo (``orcp-drive``)
+ORCP Teleop Demo (``orcp-drive``) — keyboard or gamepad
 
 A keyboard tele-operation demo for any ORCP-compliant controller. Works against
 real hardware (USB or WiFi) or the reference simulator — run
@@ -21,8 +21,23 @@ Controls:
     Space       Stop
     +/-         Increase/decrease speed
     M           Toggle SLOW / NORMAL mode
+    C           Stop by coasting
+    H           Stop and hold position
     R           Re-enable motors after a fault is cleared
     Esc         Quit
+
+Gamepad (optional — ``pip install "orcp[gamepad]"``, then ``--gamepad``):
+    Left stick Y    Forward / reverse    (proportional)
+    Right stick X   Turn                 (proportional)
+    Cross           Stop           Circle    Stop by coasting
+    Square          Hold position  Triangle  Re-enable after a fault
+    L1 / R1         Speed down / up
+    Options         Toggle SLOW / NORMAL
+    PS              Quit
+
+⚠️ A wireless pad is a link that can drop. Losing it mid-drive is handled twice
+over — see the ``disconnected`` branch in the main loop, and the stale-command
+timeout enabled at start-up.
 
 Uses CMD_VEL (linear + angular velocity).
 Sends commands at ~20Hz while a key is held.
@@ -35,6 +50,19 @@ import time
 
 from orcp import (ORCP, CommandError, ConnectionError, HoldRefused, StreamData,
                   TimeoutError)
+from orcp.gamepad import Gamepad
+
+USE_GAMEPAD = False   # set from the command line — see main()
+
+# ⚠️ Stale-command timeout applied while teleop is driving, in ms.
+#
+# PRESET SLOW ships with slow.timeout_ms = 0 — no watchdog — which is the right
+# TEACHING default (a robot should not stop because a student types slowly) and
+# the wrong default for a program driving continuously at 20 Hz. If this process
+# dies, the terminal closes, or a wireless gamepad drops, the board keeps its
+# last command with nobody sending. Teleop sends far faster than this, so it can
+# never trip in normal use. Restored on exit.
+TELEOP_TIMEOUT_MS = 1000
 
 PORT = None  # set from the command line — see main()
 
@@ -88,7 +116,34 @@ def _run(stdscr):
         nonlocal fault_str
         fault_str = ev.code   # instant notification the moment a fault trips
 
+    # ⚠️ Declared here, ABOVE the start-up block that assigns them. They were
+    # originally in the State section further down, which ran afterwards and
+    # silently reset pad to None — the gamepad opened, then was discarded.
+    pad = None
+    pad_msg = ""
+    saved_slow_to = None
+
     robot.preset('SLOW')
+
+    # ⚠️ Arm the board's own stale-command watchdog for the session. Teleop
+    # sends at 20 Hz so this can never trip while it is running; it exists for
+    # when teleop ISN'T running any more — a killed terminal, a crashed
+    # process, or a gamepad that dropped while the robot was moving. Restored
+    # in the finally block.
+    try:
+        saved_slow_to = robot.get('slow.timeout_ms')
+        robot.set('slow.timeout_ms', TELEOP_TIMEOUT_MS)
+        robot.preset('SLOW')          # re-apply so the new timeout takes effect
+    except (CommandError, TimeoutError):
+        saved_slow_to = None          # older firmware without the key
+
+    if USE_GAMEPAD:
+        try:
+            pad = Gamepad()
+            pad_msg = f"gamepad: {pad.name}"
+        except (ImportError, RuntimeError) as exc:
+            pad_msg = f"gamepad unavailable ({exc}) — keyboard only"
+
     robot.on_fault(_on_fault)
     robot.stream_on(rate=5, callback=on_telemetry)
     normal_mode = False
@@ -155,6 +210,13 @@ def _run(stdscr):
         put(13, 4, "M          Toggle SLOW / NORMAL")
         put(14, 4, "R          Re-enable after fault")
         put(15, 4, "Esc        Quit")
+        if pad is not None:
+            put(4, 34, "│ Gamepad")
+            put(5, 34, "│  L stick Y   forward/reverse")
+            put(6, 34, "│  R stick X   turn")
+            put(7, 34, "│  ✕ stop   ○ coast   □ hold")
+            put(8, 34, "│  △ re-enable   L1/R1 speed")
+            put(9, 34, "│  Options  mode    PS  quit")
 
         dir_str = "STOPPED"
         if   v > 0 and w == 0: dir_str = "▲ FORWARD"
@@ -186,8 +248,10 @@ def _run(stdscr):
             put(22, 0, "HOLD:      /!\\ RELEASED — hold ended, robot is NOT held",
                 curses.A_BOLD | curses.A_REVERSE)
 
+        if pad_msg:
+            put(23, 0, pad_msg, curses.A_DIM)
         if normal_mode:
-            put(23, 0, "Heartbeat: active (100ms)", curses.A_DIM)
+            put(24, 0, "Heartbeat: active (100ms)", curses.A_DIM)
 
         if mode_msg and time.time() - mode_msg_time < 2.0:
             put(25, 0, mode_msg, curses.A_BOLD)
@@ -216,9 +280,74 @@ def _run(stdscr):
             v = 0.0
             w = 0.0
 
+            # ── Gamepad ────────────────────────────────────────────────────
+            gp_active = False
+            if pad is not None:
+                gs = pad.poll()
+
+                # ⚠️ THE PAD WENT AWAY. Stop, now, and do not wait for the
+                # board's watchdog — that is the backstop, not the plan. A
+                # Bluetooth drop, a flat battery or walking out of range all
+                # land here, and the robot is moving when they do.
+                if gs.disconnected:
+                    try:
+                        robot.stop()
+                    except Exception:
+                        pass
+                    pad = None
+                    pad_msg = ">>> GAMEPAD DISCONNECTED — stopped <<<"
+                    mode_msg = pad_msg
+                    mode_msg_time = now
+                    last_v = last_w = 0.0
+                else:
+                    if gs.quit:
+                        running = False
+                        continue
+                    if gs.stop:
+                        robot.stop(); last_v = last_w = 0.0
+                    if gs.coast:
+                        try:
+                            robot.stop('COAST')
+                        except (CommandError, TimeoutError):
+                            pass
+                        last_v = last_w = 0.0
+                    if gs.hold:
+                        try:
+                            robot.hold()
+                            mode_msg = ">>> HOLD — actively holding position <<<"
+                        except HoldRefused as exc:
+                            mode_msg = f">>> Stopped, NOT holding: {exc.reason} <<<"
+                        except (CommandError, TimeoutError):
+                            mode_msg = ">>> HOLD: no response <<<"
+                        mode_msg_time = now
+                        last_v = last_w = 0.0
+                    if gs.reenable:
+                        try:
+                            robot.enable(); fault_str = None
+                            mode_msg = ">>> Re-enabled (fault cleared) <<<"
+                        except (CommandError, TimeoutError) as exc:
+                            mode_msg = f">>> Re-enable rejected: {exc} <<<"
+                        mode_msg_time = now
+                    if gs.speed_up:
+                        speed_idx = min(speed_idx + 1, len(speeds()) - 1)
+                    if gs.speed_down:
+                        speed_idx = max(speed_idx - 1, 0)
+                    if gs.toggle_preset:
+                        key = ord('m')      # reuse the keyboard path below
+
+                    # Analog motion. Scaled by the SELECTED speed step rather
+                    # than run at full scale, so the +/- ceiling still means
+                    # something and a beginner can cap the robot low.
+                    if gs.throttle or gs.steer:
+                        v = gs.throttle * speeds()[speed_idx]
+                        w = gs.steer * turn_rate()
+                        gp_active = True
+
             if key == 27:  # Esc
                 running = False
                 continue
+            elif gp_active:
+                pass          # stick has the floor this tick
             elif key == ord('w') or key == curses.KEY_UP:
                 v = speeds()[speed_idx]
             elif key == ord('s') or key == curses.KEY_DOWN:
@@ -311,6 +440,16 @@ def _run(stdscr):
     finally:
         # Always return to a safe state on exit
         robot.stop()
+        if pad is not None:
+            pad.close()
+        # ⚠️ Restore the user's stale-command timeout. Leaving 1000 ms behind
+        # would make a robot that is *meant* to sit still between commands
+        # fault a second after any manual GET/SET session.
+        if saved_slow_to is not None:
+            try:
+                robot.set('slow.timeout_ms', saved_slow_to)
+            except Exception:
+                pass
         robot.stop_heartbeat()
         robot.stream_off()
         try:
@@ -323,17 +462,23 @@ def _run(stdscr):
 def main() -> None:
     """Console entry point for the ``orcp-drive`` command."""
     global PORT
-    if len(sys.argv) < 2:
+    global USE_GAMEPAD
+    args = [a for a in sys.argv[1:] if a != "--gamepad"]
+    USE_GAMEPAD = "--gamepad" in sys.argv
+    if len(args) < 1:
         sys.stderr.write(
-            "Usage: orcp-drive <port>\n"
+            "Usage: orcp-drive <port> [--gamepad]\n"
             "  USB:        orcp-drive /dev/cu.usbmodemXXXX   (macOS)\n"
             "              orcp-drive /dev/ttyACM0            (Linux)\n"
             "              orcp-drive COM3                    (Windows)\n"
             "  WiFi/TCP:   orcp-drive socket://192.168.4.1:3333\n"
             "  Simulator:  orcp-sim --link /tmp/orcp   then   orcp-drive /tmp/orcp\n"
+            "\n"
+            "  --gamepad   drive with a connected controller (DualSense, Xbox, …)\n"
+            "              needs: pip install \"orcp[gamepad]\"\n"
         )
         sys.exit(1)
-    PORT = sys.argv[1]
+    PORT = args[0]
     curses.wrapper(_run)
 
 
