@@ -350,24 +350,26 @@ class ORCP:
             if refused:
                 raise HoldRefused(refused)
 
-            # ⚠️ CONFIRM the hold actually engaged, rather than trusting an OK.
+            # ⚠️ CONFIRM from the RESPONSE that the hold was honoured.
             #
             # Firmware predating the feature reads only bare STOP arguments and
             # IGNORES `hold=1`, so it brakes and answers a perfectly ordinary
-            # `OK STOP mode=BRAKE`. There is no ERR and no hold=refused, so
-            # everything above passes and the caller is told it is holding
-            # position when the robot is merely braked. On a gradient that is
-            # the exact hazard this feature exists to prevent, and it is a live
-            # risk whenever a board has not been updated.
+            # `OK STOP mode=BRAKE` — no ERR, no hold=refused, nothing above
+            # catches it, and the caller is told it is holding position when the
+            # robot is merely braked. On a gradient that is the exact hazard
+            # this feature exists to prevent.
             #
-            # One extra round-trip on a command issued rarely, to make the
-            # promise "if hold() returns, you are holding" true against any
-            # firmware.
-            try:
-                if self.status().hold != 1:
-                    raise HoldRefused("UNSUPPORTED")
-            except (CommandError, TimeoutError):
-                pass          # cannot confirm; do not invent a failure
+            # Firmware that DOES support it always echoes `hold=on`, for both
+            # the braking and the coasting form. So the absence of `hold=on` is
+            # the tell, and no extra round-trip is needed.
+            #
+            # ⚠️ Do NOT check `STATUS hold == 1` here instead. `STOP mode=COAST
+            # hold=1` arms the hold and engages it at the COAST-PARK, so hold is
+            # legitimately 0 until the robot reaches rest — an immediate STATUS
+            # check reports a working coast-hold as UNSUPPORTED. Found on
+            # hardware 2026-08-27 running the §9.6 exit-path tests.
+            if "hold=on" not in resp:
+                raise HoldRefused("UNSUPPORTED")
             return
         try:
             parse_response(self._send_command(cmd))

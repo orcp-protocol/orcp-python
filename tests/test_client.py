@@ -143,8 +143,7 @@ class TestMotionCommands:
             (dict(mode="COAST", hold=True), "STOP mode=COAST hold=1"),
             (dict(mode="BRAKE", hold=True), "STOP mode=BRAKE hold=1"),
         ):
-            robot, transport = make_robot("OK STOP mode=BRAKE hold=on",
-                                          "OK STATUS preset=SLOW mode=VELOCITY en=1 fault=OK estop=0 hold=1",)
+            robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
             try:
                 robot.stop(**kwargs)
                 assert transport.sent[0].strip() == expected
@@ -152,8 +151,7 @@ class TestMotionCommands:
                 robot.close()
 
     def test_hold_shorthand(self):
-        robot, transport = make_robot("OK STOP mode=BRAKE hold=on",
-                                      "OK STATUS preset=SLOW mode=VELOCITY en=1 fault=OK estop=0 hold=1",)
+        robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
         try:
             robot.hold()
             assert transport.sent[0].strip() == "STOP hold=1"
@@ -213,10 +211,7 @@ class TestMotionCommands:
             robot.close()
 
     def test_successful_hold_does_not_raise(self):
-        robot, transport = make_robot(
-            "OK STOP mode=BRAKE hold=on",
-            "OK STATUS preset=SLOW mode=VELOCITY en=1 fault=OK estop=0 hold=1",
-        )
+        robot, transport = make_robot("OK STOP mode=BRAKE hold=on")
         try:
             robot.stop(hold=True)      # must not raise
         finally:
@@ -229,10 +224,7 @@ class TestMotionCommands:
         the response alone. The caller would be told it is holding position
         while the robot is merely braked, which on a gradient is precisely the
         hazard this feature exists to prevent. hold() confirms via STATUS."""
-        robot, transport = make_robot(
-            "OK STOP mode=BRAKE",                                    # hold= ignored
-            "OK STATUS preset=SLOW mode=IDLE en=1 fault=OK estop=0",  # no hold field
-        )
+        robot, transport = make_robot("OK STOP mode=BRAKE")   # hold= silently ignored
         try:
             with pytest.raises(HoldRefused) as exc:
                 robot.hold()
@@ -422,3 +414,18 @@ class TestHeartbeat:
             assert not robot._heartbeat.is_running
         finally:
             robot.close()
+
+
+def test_coast_hold_is_not_reported_unsupported():
+    """⚠️ `STOP mode=COAST hold=1` arms the hold and engages it at the
+    COAST-PARK, so it is legitimately not holding yet when the response
+    arrives. An earlier version confirmed via `STATUS hold == 1` immediately
+    and therefore reported every working coast-hold as UNSUPPORTED — found on
+    hardware running the §9.6 exit-path tests. The response's `hold=on` is the
+    correct signal: firmware that honours the request always echoes it."""
+    robot, transport = make_robot("OK STOP mode=COAST parking=auto hold=on")
+    try:
+        robot.stop("COAST", hold=True)      # must not raise
+        assert transport.sent[0].strip() == "STOP mode=COAST hold=1"
+    finally:
+        robot.close()
