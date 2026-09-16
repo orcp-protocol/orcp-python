@@ -54,7 +54,11 @@ def test_end_to_end_against_mc1_sim(mc1_sim):
         assert info.proto == "ORCP/1.1"
         assert info.level == 2
         assert info.extra.get("bl") == "1.4.0"
-        assert info.fw == "1.13.3"
+        # Pinned deliberately: this is the tripwire that catches the mc1
+        # profile going stale against the firmware. When it fails after a
+        # firmware release, the fix is to re-sync the profile and bump this
+        # line — not to loosen the assertion.
+        assert info.fw == "1.14.3"
 
         st = r.status()
         assert st.preset == "SLOW"
@@ -65,7 +69,7 @@ def test_end_to_end_against_mc1_sim(mc1_sim):
         r.set("batt.hyst_v", 0.3)
         assert r.get("batt.hyst_v") == pytest.approx(0.3)
 
-        assert len(r.get_all()) == 63    # FW 1.13.0 / CONFIG 25
+        assert len(r.get_all()) == 63    # CONFIG 25 — unchanged since FW 1.13.0
 
         # Keys added since the client was last synced. current.scale is the one
         # that matters in the other direction: it was split per-side, so a
